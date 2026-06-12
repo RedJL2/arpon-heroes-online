@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arpon Heroes: Classic Starter Set A</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <img class="brand-logo" src="./assets/logo.png" alt="Arpon Heroes" />
+
+        <div class="status-strip" aria-live="polite">
+          <div class="status-block">
+            <span>Current player</span>
+            <strong id="turnLabel">Prepare Battle</strong>
+          </div>
+          <div class="status-block">
+            <span>Phase</span>
+            <strong id="phaseLabel">Game Setup</strong>
+          </div>
+          <div class="status-block compact">
+            <span id="moveCaption">Steps</span>
+            <strong id="moveLabel">-</strong>
+          </div>
+          <button class="dice-button" id="rollButton" type="button">
+            <span class="die-face" id="diceIcon">D6</span>
+            <span id="diceLabel">Roll</span>
+          </button>
+        </div>
+
+        <div class="top-actions">
+          <button class="tool-button" id="rulesButton" type="button" title="Open rules">?</button>
+          <button class="tool-button" id="endTurnButton" type="button" title="End turn">End</button>
+          <button class="tool-button danger" id="resetButton" type="button" title="New game">New</button>
+        </div>
+      </header>
+
+      <main class="arena-layout">
+        <aside class="squad-panel panel">
+          <div class="panel-heading">
+            <span id="setupTitle">Game Setup</span>
+            <strong id="setupBadge">Set A</strong>
+          </div>
+          <div id="setupPanel" class="setup-panel"></div>
+          <div id="heroList" class="hero-list"></div>
+        </aside>
+
+        <section class="battlefield-section">
+          <div class="board-toolbar">
+            <p id="battleHint">Configure players to begin.</p>
+          </div>
+
+          <button class="center-dice-button" id="centerRollButton" type="button" hidden>
+            <span class="center-die-face" id="centerDiceIcon">D6</span>
+            <span id="centerDiceLabel">Roll Movement</span>
+          </button>
+          <button class="center-end-button" id="centerEndTurnButton" type="button" hidden>End Turn</button>
+
+          <div class="board-frame">
+            <div id="board" class="board" aria-label="Arpon Heroes battlefield"></div>
+          </div>
+        </section>
+
+        <aside class="command-panel panel">
+          <div class="selected-card" id="selectedCard"></div>
+
+          <div class="tabs" role="tablist" aria-label="Details">
+            <button class="tab active" data-tab="cards" type="button">Cards</button>
+            <button class="tab" data-tab="log" type="button">Battle log</button>
+          </div>
+
+          <div class="tab-panel active" id="cardsPanel">
+            <div id="cardStack" class="card-stack"></div>
+          </div>
+          <div class="tab-panel" id="logPanel">
+            <ol id="battleLog" class="battle-log"></ol>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="modal-backdrop home-backdrop" id="lobbyModal">
+      <section class="home-screen" aria-labelledby="lobbyTitle">
+        <header class="home-header">
+          <img src="./assets/logo.png" alt="Arpon Heroes" />
+          <div>
+            <p class="eyebrow">Classic Starter Set A</p>
+            <h1 id="lobbyTitle">Choose Your Battle</h1>
+            <p>Draft two Heroes, fortify the arena, and outfight every rival squad.</p>
+          </div>
+          <button class="guide-action" id="homeRulesButton" type="button">
+            <strong>How to Play</strong>
+            <span>Rules, setup, movement, and combat</span>
+          </button>
+        </header>
+
+        <section class="home-panel" id="homeMenuPanel">
+          <div class="mode-grid">
+            <button class="mode-card local" id="openLocalButton" type="button">
+              <span class="mode-icon">1</span>
+              <strong>Pass &amp; Play</strong>
+              <small>Play together on this screen</small>
+            </button>
+            <button class="mode-card private" id="openPrivateButton" type="button">
+              <span class="mode-icon">#</span>
+              <strong>Private Room</strong>
+              <small>Create or join with a room code</small>
+            </button>
+            <button class="mode-card match" id="findMatchButton" type="button">
+              <span class="mode-icon">VS</span>
+              <strong>Find Online Players</strong>
+              <small>Match with 2–4 public players</small>
+            </button>
+          </div>
+          <label class="online-field home-online-name">
+            <span>Your online name</span>
+            <input id="onlinePlayerName" maxlength="22" placeholder="Player name" value="Player" />
+          </label>
+          <p class="home-note">Online games begin with two players. Matchmaking waits up to two minutes for players three and four.</p>
+        </section>
+
+        <section class="home-panel setup-mode-panel" id="localSetupPanel" hidden>
+          <div class="home-panel-title">
+            <button class="back-action" data-home-back type="button">Back</button>
+            <div><span>Local Battle</span><strong>Pass &amp; Play Setup</strong></div>
+          </div>
+          <div class="player-count">
+            <span>Players</span>
+            <div class="segmented wide">
+              <button class="count-button" data-count="2" type="button">2</button>
+              <button class="count-button" data-count="3" type="button">3</button>
+              <button class="count-button active" data-count="4" type="button">4</button>
+            </div>
+          </div>
+          <label class="turn-limit-control" for="turnLimitInput">
+            <span>Battle length</span>
+            <strong id="turnLimitValue">40 turns</strong>
+            <input id="turnLimitInput" type="range" min="8" max="80" step="4" value="40" />
+            <small>At the limit, the squad with the most combined HP wins.</small>
+          </label>
+          <div class="lobby-players" id="lobbyPlayers"></div>
+          <button class="primary-action large" id="startGameButton" type="button">Deal Set A Cards</button>
+        </section>
+
+        <section class="home-panel setup-mode-panel" id="privateSetupPanel" hidden>
+          <div class="home-panel-title">
+            <button class="back-action" data-home-back type="button">Back</button>
+            <div><span>Online Battle</span><strong>Private Room</strong></div>
+          </div>
+          <div class="private-actions">
+            <button class="online-choice" id="createRoomButton" type="button">
+              <strong>Create Room</strong><span>Get a code to share</span>
+            </button>
+            <div class="join-room">
+              <label class="online-field">
+                <span>Room code</span>
+                <input id="roomCodeInput" maxlength="6" placeholder="ABC123" autocomplete="off" />
+              </label>
+              <button class="primary-action" id="joinRoomButton" type="button">Join Room</button>
+            </div>
+          </div>
+          <p class="online-message" id="privateMessage">Private rooms support 2–4 players.</p>
+        </section>
+      </section>
+    </div>
+
+    <div class="modal-backdrop online-room-backdrop" id="onlineRoomModal" hidden>
+      <section class="online-room-modal">
+        <img src="./assets/logo.png" alt="Arpon Heroes" />
+        <p class="eyebrow" id="onlineRoomEyebrow">Private Room</p>
+        <h2 id="onlineRoomTitle">Room ABC123</h2>
+        <p id="onlineRoomStatus">Waiting for players...</p>
+        <div class="online-countdown" id="onlineCountdown" hidden><span>Battle begins in</span><strong id="onlineCountdownValue">2:00</strong></div>
+        <div class="online-player-list" id="onlinePlayerList"></div>
+        <button class="primary-action large" id="startOnlineRoomButton" type="button" hidden>Start Battle</button>
+        <button class="back-action online-cancel" id="cancelOnlineButton" type="button">Leave Room</button>
+      </section>
+    </div>
+
+    <div class="modal-backdrop pass-backdrop" id="passModal" hidden>
+      <section class="modal pass-modal">
+        <p class="eyebrow">Pass the screen</p>
+        <div class="pass-emblem" id="passEmblem">1</div>
+        <h2 id="passTitle">Red Player</h2>
+        <p id="passMessage">Your turn is ready.</p>
+        <button class="primary-action large" id="passButton" type="button">Reveal Turn</button>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="rulesModal" hidden>
+      <section class="modal rules-modal">
+        <div class="modal-title-row">
+          <div>
+            <p class="eyebrow">Official digital rulings</p>
+            <h2>How to Play</h2>
+          </div>
+          <button class="tool-button" id="closeRulesButton" type="button">Close</button>
+        </div>
+        <div class="rules-grid">
+          <article><strong>1. Make Sets</strong><p>Each player receives three random cards of each type. Choose two Heroes, two Armors, and two Weapons, then arrange them into two sets. Matching a Hero with its Armor adds 100 HP; matching its Weapon adds 100 DP.</p></article>
+          <article><strong>2. Place Walls</strong><p>Players place four walls before passing setup to the next player, until 24 walls are on the field. Walls may be in your base, neutral territory, or an unoccupied base, but never in an occupied enemy base.</p></article>
+          <article><strong>3. Move</strong><p>Roll once and spend every movement step before attacking. You may take a legal detour or return to the same square to use the full roll, and may split steps between either Hero. A diagonal may round one wall corner, but cannot pass through a corner closed by two walls.</p></article>
+          <article><strong>4. Attack</strong><p>After movement, every Hero may attack every reachable enemy once. Each enemy resolves separately. Heroes shield Heroes behind them; walls block attacks unless an ability says otherwise.</p></article>
+          <article><strong>5. Retreat</strong><p>After attacks, each Hero that attacked may roll once and retreat. Retreat bonuses and penalties apply. You may also stay put.</p></article>
+          <article><strong>6. Win</strong><p>A squad is eliminated when both Heroes reach 0 HP. The last squad standing wins; if the chosen turn limit is reached first, the squad with the most combined remaining HP wins.</p></article>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop card-zoom-backdrop" id="cardZoomModal" hidden>
+      <section class="card-zoom-modal" aria-labelledby="cardZoomTitle">
+        <div class="card-zoom-heading">
+          <h2 id="cardZoomTitle">Card</h2>
+          <button class="card-zoom-close" id="closeCardZoomButton" type="button" aria-label="Close full-screen card">X</button>
+        </div>
+        <img id="cardZoomImage" src="" alt="" />
+      </section>
+    </div>
+
+    <div class="modal-backdrop roll-prompt-backdrop" id="rollPromptModal" hidden>
+      <section class="modal roll-prompt-modal">
+        <p class="eyebrow">Ability roll</p>
+        <h2 id="rollPromptTitle">Roll for ability</h2>
+        <p id="rollPromptMessage">Need 1-3 for +100 DP.</p>
+        <button class="primary-action large" id="abilityRollButton" type="button">Roll D6</button>
+      </section>
+    </div>
+
+    <div class="dice-result-overlay" id="diceResultOverlay" hidden>
+      <span id="diceResultLabel">Movement Roll</span>
+      <strong id="diceResultValue">6</strong>
+    </div>
+
+    <div class="attack-receipt" id="attackReceipt" hidden aria-live="polite"></div>
+
+    <div class="modal-backdrop victory-backdrop" id="victoryModal" hidden>
+      <section class="victory-modal">
+        <img src="./assets/logo.png" alt="Arpon Heroes" />
+        <p class="eyebrow" id="victoryReason">Battle complete</p>
+        <h2 id="victoryTitle">Red Wins</h2>
+        <div class="victory-scores" id="victoryScores"></div>
+        <button class="primary-action large" id="homeButton" type="button">Back Home</button>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+    <script type="module" src="./online.js"></script>
+  </body>
+</html>
