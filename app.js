@@ -118,6 +118,7 @@ const deviceState = {
   dismissedReceiptId: null,
   lastDiceResultToken: null,
   pendingMoveChoice: null,
+  pendingStayMove: null,
   setPreviewId: null,
   setPreviewTimer: null,
   suppressNextSetClick: false,
@@ -133,6 +134,7 @@ const elements = Object.fromEntries(
     "rollPromptModal", "rollPromptTitle", "rollPromptMessage", "abilityRollButton", "diceResultOverlay", "diceResultLabel", "diceResultValue",
     "turnLimitInput", "turnLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
     "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton",
+    "stayConfirmModal", "stayConfirmMessage", "cancelStayButton", "confirmStayButton",
     "setPreviewModal", "setPreviewTitle", "setPreviewCards", "closeSetPreviewButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
@@ -181,6 +183,9 @@ function resetToLobby() {
   deviceState.dismissedReceiptId = null;
   deviceState.lastDiceResultToken = null;
   deviceState.pendingMoveChoice = null;
+  deviceState.pendingStayMove = null;
+  elements.moveChoiceModal.hidden = true;
+  elements.stayConfirmModal.hidden = true;
   state.turnNumber = 1;
   state.turnLimit = defaultTurnLimit(state.playerCount);
   state.log = [];
@@ -786,9 +791,27 @@ function onCellClick(x, y) {
   if (target && target.team !== selected.team && canAttack(selected, target)) return attackLoadout(selected, target);
   const move = getHighlights(selected).move.get(posKey(x, y));
   if (move && (!target || target.id === selected.id)) {
-    if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
+    if (state.phase === "move" && move.returnMove) requestStayConfirmation(selected, move);
+    else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
     else moveLoadoutTo(selected, move);
   }
+}
+
+function requestStayConfirmation(loadout, move) {
+  deviceState.pendingStayMove = { loadoutId: loadout.id, move };
+  elements.stayConfirmMessage.textContent = `${loadout.name} can spend the full ${move.steps}-step route and return here. Are you sure you do not want to move to another square?`;
+  elements.stayConfirmModal.style.setProperty("--team-color", teams[loadout.team].color);
+  elements.stayConfirmModal.hidden = false;
+}
+
+function resolveStayConfirmation(confirmStay) {
+  const pending = deviceState.pendingStayMove;
+  deviceState.pendingStayMove = null;
+  elements.stayConfirmModal.hidden = true;
+  if (!confirmStay || !pending) return;
+  const loadout = getLoadout(pending.loadoutId);
+  if (!loadout || state.phase !== "move") return;
+  moveLoadoutTo(loadout, pending.move);
 }
 
 function requestMoveSpendChoice(loadout, move) {
@@ -819,7 +842,8 @@ function onPawnClick(loadoutId) {
   if (selected && clicked.id === selected.id) {
     const move = getHighlights(selected).move.get(posKey(clicked.x, clicked.y));
     if (move) {
-      if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
+      if (state.phase === "move" && move.returnMove) requestStayConfirmation(selected, move);
+      else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
       else moveLoadoutTo(selected, move);
       return;
     }
@@ -1877,6 +1901,8 @@ elements.abilityRollButton.addEventListener("click", () => {
 });
 elements.keepMovementButton.addEventListener("click", () => resolveMoveSpendChoice(false));
 elements.finishMovementButton.addEventListener("click", () => resolveMoveSpendChoice(true));
+elements.cancelStayButton.addEventListener("click", () => resolveStayConfirmation(false));
+elements.confirmStayButton.addEventListener("click", () => resolveStayConfirmation(true));
 elements.closeSetPreviewButton.addEventListener("click", closeSetPreview);
 elements.setPreviewModal.addEventListener("pointerup", closeSetPreview);
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => {

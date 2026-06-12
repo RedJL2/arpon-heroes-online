@@ -112,6 +112,7 @@
               <span class="mode-icon">VS</span>
               <strong>Find Online Players</strong>
               <small>Match with 2–4 public players</small>
+              <span class="match-waiting-count" id="matchWaitingCount" aria-live="polite">Checking queue...</span>
             </button>
           </div>
           <label class="online-field home-online-name">
@@ -249,6 +250,18 @@
         <div class="move-choice-actions">
           <button class="secondary-action large" id="keepMovementButton" type="button">Keep Movement</button>
           <button class="primary-action large" id="finishMovementButton" type="button">Finish Movement</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop stay-confirm-backdrop" id="stayConfirmModal" hidden>
+      <section class="modal stay-confirm-modal">
+        <p class="eyebrow">Confirm movement</p>
+        <h2>Stay on This Square?</h2>
+        <p id="stayConfirmMessage">Are you sure you do not want to move this Hero?</p>
+        <div class="move-choice-actions">
+          <button class="secondary-action large" id="cancelStayButton" type="button">Choose Another Square</button>
+          <button class="primary-action large" id="confirmStayButton" type="button">Yes, Stay Here</button>
         </div>
       </section>
     </div>

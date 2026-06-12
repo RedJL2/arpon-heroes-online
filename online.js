@@ -1,13 +1,14 @@
 const SUPABASE_URL = "https://gfktqgtizctecrypnfan.supabase.co";
 const SUPABASE_KEY = "sb_publishable_l3b8UIl2LwcPf9w2NUchgg_FMGIoa4J";
 const POLL_INTERVAL = 1400;
+const MATCHMAKING_COUNT_INTERVAL = 5000;
 
 const onlineElements = Object.fromEntries(
   [
     "lobbyModal", "homeMenuPanel", "localSetupPanel", "privateSetupPanel", "openLocalButton", "openPrivateButton", "findMatchButton",
     "homeRulesButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
-    "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput",
+    "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -30,6 +31,8 @@ const session = {
   lastStateHash: "",
 };
 sessionStorage.setItem("arpon-player-token", session.token);
+let matchmakingCountTimer = null;
+let matchmakingCountBusy = false;
 
 function playerName() {
   const entered = onlineElements.onlinePlayerName.value.trim();
@@ -69,11 +72,36 @@ async function rpc(name, parameters = {}) {
   return payload;
 }
 
+function renderMatchmakingCount(count = null) {
+  if (!onlineElements.matchWaitingCount) return;
+  const amount = Number(count);
+  if (!Number.isFinite(amount)) {
+    onlineElements.matchWaitingCount.textContent = "Queue count unavailable";
+    onlineElements.findMatchButton.classList.remove("has-waiting-players");
+    return;
+  }
+  onlineElements.matchWaitingCount.textContent = amount === 1 ? "1 player waiting now" : `${amount} players waiting now`;
+  onlineElements.findMatchButton.classList.toggle("has-waiting-players", amount > 0);
+}
+
+async function refreshMatchmakingCount() {
+  if (matchmakingCountBusy || session.active || onlineElements.homeMenuPanel.hidden || onlineElements.lobbyModal.hidden) return;
+  matchmakingCountBusy = true;
+  try {
+    renderMatchmakingCount(await rpc("get_arpon_matchmaking_waiting_count"));
+  } catch {
+    renderMatchmakingCount(null);
+  } finally {
+    matchmakingCountBusy = false;
+  }
+}
+
 function showHomePanel(panel) {
   onlineElements.homeMenuPanel.hidden = panel !== "menu";
   onlineElements.localSetupPanel.hidden = panel !== "local";
   onlineElements.privateSetupPanel.hidden = panel !== "private";
   onlineElements.lobbyModal.hidden = false;
+  if (panel === "menu") refreshMatchmakingCount();
 }
 
 function showPrivateMessage(message, error = false) {
@@ -423,6 +451,8 @@ window.ArponOnline = {
 
 onlineElements.onlinePlayerName.value = localStorage.getItem("arpon-player-name") || "Player";
 showHomePanel("menu");
+clearInterval(matchmakingCountTimer);
+matchmakingCountTimer = setInterval(refreshMatchmakingCount, MATCHMAKING_COUNT_INTERVAL);
 
 let savedRoom = null;
 try {

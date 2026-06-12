@@ -1150,24 +1150,31 @@ button:disabled {
   z-index: 235;
 }
 
+.stay-confirm-backdrop {
+  z-index: 236;
+}
+
 .roll-prompt-modal {
   pointer-events: auto;
 }
 
-.move-choice-modal {
+.move-choice-modal,
+.stay-confirm-modal {
   width: min(620px, 100%);
   border-color: var(--team-color, #292c31);
   box-shadow: 8px 8px 0 var(--team-color, var(--red)), var(--shadow);
   text-align: center;
 }
 
-.move-choice-modal h2 {
+.move-choice-modal h2,
+.stay-confirm-modal h2 {
   margin: 6px 0 10px;
   color: var(--team-color, var(--red));
   font-size: 2rem;
 }
 
-.move-choice-modal p:not(.eyebrow) {
+.move-choice-modal p:not(.eyebrow),
+.stay-confirm-modal p:not(.eyebrow) {
   margin: 0 0 20px;
   font-size: 1rem;
   font-weight: 800;
@@ -1257,7 +1264,9 @@ body.draft-mode .squad-panel {
   position: fixed;
   z-index: 80;
   inset: 94px 18px 18px;
-  max-height: none;
+  height: calc(100vh - 112px);
+  max-height: calc(100vh - 112px);
+  align-self: auto;
   overflow-y: auto;
   border: 5px solid #292c31;
   background:
@@ -1273,37 +1282,42 @@ body.draft-mode .squad-panel .panel-heading {
 }
 
 body.draft-mode .setup-panel {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 18px;
-  gap: 16px;
+  display: flex;
+  padding: 22px clamp(14px, 3vw, 42px) 42px;
+  flex-direction: column;
+  gap: 22px;
 }
 
 body.draft-mode .setup-card,
 body.draft-mode .pairing-panel,
 body.draft-mode .setup-panel > .primary-action {
-  grid-column: 1 / -1;
+  width: min(1120px, 100%);
+  margin-inline: auto;
 }
 
 body.draft-mode .draft-group {
-  padding: 12px;
-  border: 2px solid #bfc2c5;
+  width: min(1120px, 100%);
+  margin-inline: auto;
+  padding: clamp(14px, 2vw, 24px);
+  border: 3px solid #bfc2c5;
   background: rgba(255, 255, 252, 0.82);
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.12);
 }
 
 body.draft-mode .draft-cards {
-  gap: 10px;
+  gap: clamp(10px, 2vw, 24px);
 }
 
 body.draft-mode .draft-card {
-  padding: 7px;
+  padding: clamp(7px, 1vw, 13px);
 }
 
 body.draft-mode .draft-select > span {
-  font-size: 0.82rem;
+  font-size: clamp(0.82rem, 1.6vw, 1.08rem);
 }
 
 body.draft-mode .draft-select small {
-  font-size: 0.7rem;
+  font-size: clamp(0.7rem, 1.2vw, 0.88rem);
 }
 
 body.draft-mode .hero-list {
@@ -1437,6 +1451,29 @@ body.draft-mode .hero-list {
 
 .mode-card.match {
   border-bottom-color: #d6ab00;
+}
+
+.match-waiting-count {
+  width: fit-content;
+  margin-top: 8px;
+  padding: 5px 7px;
+  border: 2px solid #292c31;
+  background: rgba(255, 255, 255, 0.82);
+  color: #555c63;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.mode-card.match.has-waiting-players .match-waiting-count {
+  background: #f5d84c;
+  color: #292c31;
+  box-shadow: 2px 2px 0 #292c31;
+  animation: queue-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes queue-pulse {
+  50% { transform: translateY(-2px); }
 }
 
 .mode-icon {
@@ -2419,10 +2456,36 @@ body.draft-mode .hero-list {
 
   body.draft-mode .squad-panel {
     inset: 12px;
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
   }
 
   body.draft-mode .setup-panel {
+    padding: 12px 10px 34px;
+    gap: 14px;
+  }
+
+  body.draft-mode .draft-group {
+    padding: 10px;
+  }
+
+  body.draft-mode .draft-cards {
     grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  body.draft-mode .draft-card {
+    width: min(320px, 100%);
+    margin-inline: auto;
+    padding: 8px;
+  }
+
+  body.draft-mode .draft-select > span {
+    font-size: 0.9rem;
+  }
+
+  body.draft-mode .draft-select small {
+    font-size: 0.72rem;
   }
 
   .set-preview-modal {
