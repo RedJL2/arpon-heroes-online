@@ -1,6 +1,6 @@
 const BOARD_SIZE = 14;
 const MAX_RANGE = 13;
-const TOTAL_WALLS = 24;
+const TOTAL_WALLS = 36;
 const WALLS_PER_SETUP_TURN = 4;
 const teamOrder = ["red", "green", "yellow", "blue"];
 const teams = {
@@ -75,11 +75,11 @@ const state = {
   draftHands: {},
   draftSelections: {},
   draftSwaps: {},
+  draftLocked: {},
   wandeltChoices: {},
   setupTeamIndex: 0,
   activeTeam: "red",
   loadouts: [],
-  selectedSetId: null,
   wallOwnerTurn: "red",
   wallCounts: {},
   walls: [],
@@ -101,12 +101,21 @@ const state = {
   retreatPenalties: {},
   retreatSteps: 0,
   pendingAttack: null,
-  pendingRollCallback: null,
-  pendingRollTeam: null,
+  pendingRoll: null,
+  sharedDiceResult: null,
   receiptTimer: null,
   receiptContent: "",
   receiptExpiresAt: 0,
+  receiptId: null,
+  victory: null,
   log: [],
+};
+
+const deviceState = {
+  selectedSetId: null,
+  dismissedReceiptId: null,
+  lastDiceResultToken: null,
+  pendingMoveChoice: null,
 };
 
 const elements = Object.fromEntries(
@@ -117,6 +126,7 @@ const elements = Object.fromEntries(
     "centerRollButton", "centerDiceIcon", "centerDiceLabel", "centerEndTurnButton", "cardZoomModal", "cardZoomImage", "cardZoomTitle", "closeCardZoomButton",
     "rollPromptModal", "rollPromptTitle", "rollPromptMessage", "abilityRollButton", "diceResultOverlay", "diceResultLabel", "diceResultValue",
     "turnLimitInput", "turnLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
+    "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -136,7 +146,7 @@ function resetToLobby() {
   state.playerNames = Object.fromEntries(teamOrder.map((team) => [team, teams[team].name]));
   state.activeTeam = "red";
   state.loadouts = [];
-  state.selectedSetId = null;
+  deviceState.selectedSetId = null;
   state.wallCounts = {};
   state.walls = [];
   state.dice = null;
@@ -151,16 +161,22 @@ function resetToLobby() {
   state.retreatPenalties = {};
   state.retreatSteps = 0;
   state.pendingAttack = null;
-  state.pendingRollCallback = null;
-  state.pendingRollTeam = null;
+  state.pendingRoll = null;
+  state.sharedDiceResult = null;
   state.receiptContent = "";
   state.receiptExpiresAt = 0;
+  state.receiptId = null;
+  state.victory = null;
+  deviceState.dismissedReceiptId = null;
+  deviceState.lastDiceResultToken = null;
+  deviceState.pendingMoveChoice = null;
   state.turnNumber = 1;
   state.log = [];
   elements.lobbyModal.hidden = false;
   elements.passModal.hidden = true;
   elements.victoryModal.hidden = true;
   elements.rollPromptModal.hidden = true;
+  elements.moveChoiceModal.hidden = true;
   hideAttackReceipt();
   renderLobby();
   render();
@@ -209,7 +225,7 @@ function startGame() {
   state.setupTeamIndex = 0;
   state.activeTeam = activeTeams()[0];
   state.loadouts = [];
-  state.selectedSetId = null;
+  deviceState.selectedSetId = null;
   state.wallCounts = Object.fromEntries(activeTeams().map((team) => [team, 0]));
   state.walls = [];
   state.placeTeamIndex = 0;
@@ -226,14 +242,15 @@ function startGame() {
   state.retreatPenalties = {};
   state.retreatSteps = 0;
   state.pendingAttack = null;
-  state.pendingRollCallback = null;
-  state.pendingRollTeam = null;
+  state.pendingRoll = null;
+  state.sharedDiceResult = null;
+  state.victory = null;
   state.turnNumber = 1;
   state.log = [];
   dealDraftHands();
   elements.lobbyModal.hidden = true;
   logEvent("Best of 3 begins. Each player chooses two cards from each three-card hand.", "#30343b");
-  showPass(activeTeams()[0], "Your private Set A deal is ready.");
+  if (!window.ArponOnline?.isOnline?.()) showPass(activeTeams()[0], "Your private Set A deal is ready.");
   render();
 }
 
@@ -246,15 +263,17 @@ function dealDraftHands() {
   state.draftHands = {};
   state.draftSelections = {};
   state.draftSwaps = {};
+  state.draftLocked = {};
   state.wandeltChoices = {};
   activeTeams().forEach((team, playerIndex) => {
     state.draftHands[team] = Object.fromEntries(Object.keys(pools).map((kind) => [kind, pools[kind].slice(playerIndex * 3, playerIndex * 3 + 3).map((card) => card.id)]));
     state.draftSelections[team] = { hero: [], armor: [], weapon: [] };
     state.draftSwaps[team] = { armor: false, weapon: false };
+    state.draftLocked[team] = false;
   });
 }
 
-function render() {
+function render(sync = true) {
   document.body.classList.toggle("draft-mode", state.phase === "draft");
   ensureSelected();
   renderTopbar();
@@ -264,7 +283,10 @@ function render() {
   renderSelectedPanel();
   renderCards();
   renderLog();
-  window.ArponOnline?.onGameRendered?.(exportGameState());
+  renderPendingRoll();
+  renderSharedDiceResult();
+  renderVictory();
+  if (sync) window.ArponOnline?.onGameRendered?.(exportGameState());
 }
 
 function renderTopbar() {
@@ -285,7 +307,7 @@ function renderTopbar() {
   elements.centerEndTurnButton.style.setProperty("--team-color", teams[state.activeTeam]?.color || teams.red.color);
   elements.centerDiceIcon.textContent = state.dice || "D6";
   elements.centerDiceLabel.textContent = state.phase === "retreatRoll" ? "Roll Retreat" : "Roll Movement";
-  elements.endTurnButton.disabled = !canControl || Boolean(state.pendingAttack || state.pendingRollCallback) || !["attack", "retreatRoll", "retreat", "done"].includes(state.phase);
+  elements.endTurnButton.disabled = !canControl || Boolean(state.pendingAttack || state.pendingRoll) || !["attack", "retreatRoll", "retreat", "done"].includes(state.phase);
   elements.battleHint.textContent = battleHint();
   const boardTeam = window.ArponOnline?.getLocalTeam?.() || visibleTeam || state.activeTeam;
   elements.board.style.setProperty("--board-rotation", boardRotation(boardTeam));
@@ -319,14 +341,14 @@ function renderSetupPanel() {
     return;
   }
   if (state.phase === "draft") {
-    const team = activeTeams()[state.setupTeamIndex];
-    if (!canLocalControlTeam(team)) {
+    const team = draftTeamForDevice();
+    if (!team) {
       elements.setupTitle.textContent = "Set Creation";
-      elements.setupBadge.textContent = displayName(team);
+      elements.setupBadge.textContent = "In progress";
       elements.setupPanel.innerHTML = `
-        <div class="setup-card team-accent" style="--team-color:${teams[team].color}">
-          <h3>${displayName(team)} is drafting</h3>
-          <p>Their Set A choices stay private. Your cards will appear when it is your turn.</p>
+        <div class="setup-card">
+          <h3>Players are building sets</h3>
+          <p>Every online player is choosing their two sets at the same time.</p>
         </div>`;
       return;
     }
@@ -360,43 +382,44 @@ function renderSetupPanel() {
 }
 
 function renderDraftPanel() {
-  const team = activeTeams()[state.setupTeamIndex];
+  const team = draftTeamForDevice();
   const hand = getDraftHand(team);
   const selection = state.draftSelections[team];
+  const locked = Boolean(state.draftLocked[team]);
   elements.setupTitle.textContent = "Set Creation";
-  elements.setupBadge.textContent = displayName(team);
+  elements.setupBadge.textContent = locked ? "Locked" : displayName(team);
   const ready = ["hero", "armor", "weapon"].every((kind) => selection[kind].length === 2);
   elements.setupPanel.innerHTML = `
     <div class="setup-card team-accent" style="--team-color:${teams[team].color}">
       <h3>Best of 3</h3>
-      <p>Choose two from each row. Selection order builds Set 1 and Set 2; use the swap buttons to change pairings.</p>
+      <p>${locked ? "Your sets are locked. Other players may still be choosing." : "Choose two from each row. Selection order builds Set 1 and Set 2; use the swap buttons to change pairings."}</p>
     </div>
-    ${["hero", "armor", "weapon"].map((kind) => draftGroup(team, kind, hand[kind], selection[kind])).join("")}
+    ${["hero", "armor", "weapon"].map((kind) => draftGroup(team, kind, hand[kind], selection[kind], locked)).join("")}
     ${ready ? draftPairing(team) : ""}
-    <button class="primary-action" id="confirmDraftButton" type="button" ${ready ? "" : "disabled"}>${state.setupTeamIndex === activeTeams().length - 1 ? "Finish Set Creation" : "Lock Sets"}</button>`;
+    <button class="primary-action" id="confirmDraftButton" type="button" ${ready && !locked ? "" : "disabled"}>${locked ? "Sets Locked" : "Lock Sets"}</button>`;
   elements.setupPanel.querySelectorAll("[data-card-id]").forEach((button) => button.addEventListener("click", () => toggleDraftCard(team, button.dataset.cardKind, button.dataset.cardId)));
   elements.setupPanel.querySelectorAll("[data-swap-kind]").forEach((button) => button.addEventListener("click", () => {
-    if (!canLocalControlTeam(team)) return;
+    if (!canLocalControlTeam(team) || state.draftLocked[team]) return;
     state.draftSwaps[team][button.dataset.swapKind] = !state.draftSwaps[team][button.dataset.swapKind];
     render();
   }));
   elements.setupPanel.querySelectorAll("[data-wandelt-set]").forEach((button) => button.addEventListener("click", () => {
-    if (!canLocalControlTeam(team)) return;
+    if (!canLocalControlTeam(team) || state.draftLocked[team]) return;
     state.wandeltChoices[`${team}_${button.dataset.wandeltSet}`] = button.dataset.pattern;
     render();
   }));
   elements.setupPanel.querySelector("#confirmDraftButton").addEventListener("click", confirmDraft);
 }
 
-function draftGroup(team, kind, hand, selected) {
+function draftGroup(team, kind, hand, selected, locked = false) {
   const plural = kind === "hero" ? "Heroes" : `${titleCase(kind)}s`;
-  return `<section class="draft-group"><div class="draft-title"><h3>${plural}</h3><span>${selected.length}/2</span></div><div class="draft-cards">${hand.map((card) => draftCardButton(card, selected.includes(card.id))).join("")}</div></section>`;
+  return `<section class="draft-group"><div class="draft-title"><h3>${plural}</h3><span>${selected.length}/2</span></div><div class="draft-cards">${hand.map((card) => draftCardButton(card, selected.includes(card.id), locked)).join("")}</div></section>`;
 }
 
-function draftCardButton(card, selected) {
+function draftCardButton(card, selected, locked = false) {
   const stat = card.kind === "armor" ? `${card.hp} HP` : card.kind === "weapon" ? `${card.dp} DP` : card.family;
   return `<article class="draft-card ${selected ? "selected" : ""}">
-    <button class="draft-select" data-card-id="${card.id}" data-card-kind="${card.kind}" type="button">
+    <button class="draft-select" data-card-id="${card.id}" data-card-kind="${card.kind}" type="button" ${locked ? "disabled" : ""}>
       <img src="${card.image}" alt="${card.name}" /><span>${card.name}</span><small>${stat}</small>
     </button>
     ${cardZoomButton(card)}
@@ -445,7 +468,7 @@ function getDraftHand(team) {
 }
 
 function toggleDraftCard(team, kind, cardId) {
-  if (!canLocalControlTeam(team)) return;
+  if (!canLocalControlTeam(team) || state.draftLocked[team]) return;
   const selected = state.draftSelections[team][kind];
   if (selected.includes(cardId)) state.draftSelections[team][kind] = selected.filter((id) => id !== cardId);
   else if (selected.length < 2) selected.push(cardId);
@@ -453,18 +476,35 @@ function toggleDraftCard(team, kind, cardId) {
 }
 
 function confirmDraft() {
-  const team = activeTeams()[state.setupTeamIndex];
+  const team = draftTeamForDevice();
   if (!canLocalControlTeam(team)) return;
   if (!["hero", "armor", "weapon"].every((kind) => state.draftSelections[team][kind].length === 2)) return;
-  previewDraftSets(team).forEach((set, index) => state.loadouts.push(createLoadout(team, index + 1, set.hero, set.armor, set.weapon)));
-  logEvent(`${displayName(team)} created two sets.`, teams[team].color);
-  if (state.setupTeamIndex < activeTeams().length - 1) {
+  state.draftLocked[team] = true;
+  logEvent(`${displayName(team)} locked two sets.`, teams[team].color);
+  if (!window.ArponOnline?.isOnline?.() && state.setupTeamIndex < activeTeams().length - 1) {
     state.setupTeamIndex += 1;
     const next = activeTeams()[state.setupTeamIndex];
     state.activeTeam = next;
     showPass(next, "Your private Set A deal is ready.");
-  } else beginWallSetup();
+  } else if (allDraftsLocked()) finalizeDraftsAndBeginWalls();
   render();
+}
+
+function draftTeamForDevice() {
+  if (window.ArponOnline?.isOnline?.()) return window.ArponOnline.getLocalTeam?.() || null;
+  return activeTeams()[state.setupTeamIndex] || null;
+}
+
+function allDraftsLocked() {
+  return activeTeams().every((team) => state.draftLocked[team]);
+}
+
+function finalizeDraftsAndBeginWalls() {
+  if (!allDraftsLocked() || state.phase !== "draft") return;
+  state.loadouts = activeTeams().flatMap((team) =>
+    previewDraftSets(team).map((set, index) => createLoadout(team, index + 1, set.hero, set.armor, set.weapon)),
+  );
+  beginWallSetup();
 }
 
 function createLoadout(team, setNumber, heroCard, armorCard, weaponCard) {
@@ -494,7 +534,7 @@ function beginWallSetup() {
   state.firstTeam = winner;
   state.activeTeam = winner;
   state.wallOwnerTurn = winner;
-  state.selectedSetId = teamLoadouts(winner)[0]?.id || state.loadouts[0]?.id || null;
+  deviceState.selectedSetId = teamLoadouts(winner)[0]?.id || state.loadouts[0]?.id || null;
   logEvent(`Setup roll: ${setupRollSummary()}. ${displayName(winner)} starts.`, teams[winner].color);
   logEvent(`Wall setup begins: ${TOTAL_WALLS} total walls. Each player places four at a time.`, "#30343b");
   showDiceResult("Setup Rolls", activeTeams().map((team) => `${teams[team].short} ${rolls[team]}`).join(" · "));
@@ -592,7 +632,7 @@ function renderPawns(highlights) {
     pawn.style.setProperty("--y", loadout.y);
     pawn.style.setProperty("--team-color", teams[loadout.team].color);
     pawn.style.setProperty("--hp", `${hpPercent}%`);
-    pawn.classList.toggle("selected", loadout.id === state.selectedSetId);
+    pawn.classList.toggle("selected", loadout.id === deviceState.selectedSetId);
     pawn.classList.toggle("targetable", selected && selected.team !== loadout.team && highlights.attack.has(posKey(loadout.x, loadout.y)));
     pawn.classList.toggle("inactive", loadout.team !== state.activeTeam);
     pawn.title = `${loadout.name}, ${displayName(loadout.team)}, Hero ${loadout.setNumber}`;
@@ -617,7 +657,7 @@ function renderHeroList() {
 
 function loadoutChip(loadout) {
   const percent = loadout.maxHp ? Math.max(0, (loadout.currentHp / loadout.maxHp) * 100) : 0;
-  return `<button class="hero-chip ${loadout.id === state.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%" data-loadout-id="${loadout.id}" type="button"><span class="hero-number">${loadout.setNumber}</span><img src="${loadout.hero.image}" alt="" /><span class="chip-meta"><strong>${loadout.name}</strong><span>${Math.max(0, loadout.currentHp)} / ${loadout.maxHp} HP</span><i><b></b></i></span></button>`;
+  return `<button class="hero-chip ${loadout.id === deviceState.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%" data-loadout-id="${loadout.id}" type="button"><span class="hero-number">${loadout.setNumber}</span><img src="${loadout.hero.image}" alt="" /><span class="chip-meta"><strong>${loadout.name}</strong><span>${Math.max(0, loadout.currentHp)} / ${loadout.maxHp} HP</span><i><b></b></i></span></button>`;
 }
 
 function renderSelectedPanel() {
@@ -658,7 +698,30 @@ function onCellClick(x, y) {
   const target = loadoutAt(x, y);
   if (target && target.team !== selected.team && canAttack(selected, target)) return attackLoadout(selected, target);
   const move = getHighlights(selected).move.get(posKey(x, y));
-  if (move && (!target || target.id === selected.id)) moveLoadoutTo(selected, move);
+  if (move && (!target || target.id === selected.id)) {
+    if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
+    else moveLoadoutTo(selected, move);
+  }
+}
+
+function requestMoveSpendChoice(loadout, move) {
+  deviceState.pendingMoveChoice = { loadoutId: loadout.id, move };
+  const keep = Math.max(0, state.movementLeft - Math.max(0, move.steps - (state.moveBonusUsed.includes(loadout.id) ? 0 : (loadout.hero.effects.moveBonus || 0))));
+  elements.moveChoiceMessage.textContent = `This square can use ${move.steps} steps or a legal ${move.fullSteps}-step route. Keep ${keep} movement to split, or finish movement and attack.`;
+  elements.keepMovementButton.textContent = `Move ${move.steps} · Keep ${keep}`;
+  elements.finishMovementButton.textContent = `Move ${move.fullSteps} · Attack`;
+  elements.moveChoiceModal.style.setProperty("--team-color", teams[loadout.team].color);
+  elements.moveChoiceModal.hidden = false;
+}
+
+function resolveMoveSpendChoice(finishMovement) {
+  const pending = deviceState.pendingMoveChoice;
+  deviceState.pendingMoveChoice = null;
+  elements.moveChoiceModal.hidden = true;
+  if (!pending) return;
+  const loadout = getLoadout(pending.loadoutId);
+  if (!loadout || state.phase !== "move") return;
+  moveLoadoutTo(loadout, finishMovement ? { ...pending.move, steps: pending.move.fullSteps } : pending.move);
 }
 
 function onPawnClick(loadoutId) {
@@ -708,7 +771,7 @@ function placeHero(x, y) {
   if (!canLocalControlTeam(team)) return;
   const loadout = teamLoadouts(team)[state.placeSetIndex];
   Object.assign(loadout, { x, y, placed: true });
-  state.selectedSetId = loadout.id;
+  deviceState.selectedSetId = loadout.id;
   logEvent(`${displayName(team)} placed ${loadout.name}.`, teams[team].color);
   state.placeSetIndex += 1;
   if (state.placeSetIndex >= 2) {
@@ -719,7 +782,7 @@ function placeHero(x, y) {
     state.phase = "battleRoll";
     state.activeTeam = state.firstTeam;
     state.turnNumber = 1;
-    state.selectedSetId = teamLoadouts(state.firstTeam)[0].id;
+    deviceState.selectedSetId = teamLoadouts(state.firstTeam)[0].id;
     logEvent(`Battle begins. ${displayName(state.firstTeam)} rolls first.`, teams[state.firstTeam].color);
     showPass(state.firstTeam, "The battle begins. Roll once, then split movement between your Heroes.");
   }
@@ -822,7 +885,7 @@ function attackLoadout(attacker, target) {
       attacker.team,
       `${attacker.name}: ${attacker.weapon.ability}`,
       attackRollMessage(attacker.weapon, attackRule),
-      (roll) => continueAttackAfterAttackRoll(attacker.id, target.id, roll),
+      { kind: "attack", attackerId: attacker.id, targetId: target.id },
     );
   } else continueAttackAfterAttackRoll(attacker.id, target.id, null);
 }
@@ -841,7 +904,7 @@ function continueAttackAfterAttackRoll(attackerId, targetId, attackRoll) {
       target.team,
       `${target.name}: ${target.armor.ability}`,
       defenseRollMessage(target.armor, defenseRule),
-      (roll) => applyResolvedAttack(attacker.id, target.id, attackRoll, roll),
+      { kind: "defense", attackerId: attacker.id, targetId: target.id, attackRoll },
     );
   } else applyResolvedAttack(attacker.id, target.id, attackRoll, null);
 }
@@ -900,7 +963,7 @@ function beginRetreats() {
     return;
   }
   state.retreatHeroId = state.retreatQueue.shift();
-  state.selectedSetId = state.retreatHeroId;
+  deviceState.selectedSetId = state.retreatHeroId;
   state.phase = "retreatRoll";
   state.dice = null;
   state.retreatSteps = 0;
@@ -911,7 +974,7 @@ function finishCurrentRetreat() {
   state.retreatSteps = 0;
   if (state.retreatQueue.length) {
     state.retreatHeroId = state.retreatQueue.shift();
-    state.selectedSetId = state.retreatHeroId;
+    deviceState.selectedSetId = state.retreatHeroId;
     state.phase = "retreatRoll";
     state.dice = null;
   } else {
@@ -1033,6 +1096,7 @@ function getReachableCells(startX, startY, distance, movingId, includeReturn = f
         y,
         steps: key === startKey ? distance : shortest.get(key),
         exactRoute,
+        fullSteps: exactRoute && shortest.has(key) && shortest.get(key) < distance ? distance : null,
         returnMove: key === startKey,
       };
     })
@@ -1085,16 +1149,50 @@ function attackPairKey(attacker, target) {
   return `${attacker.id}->${target.id}`;
 }
 
-function requestAbilityRoll(team, title, message, callback) {
-  state.pendingRollCallback = callback;
-  state.pendingRollTeam = team;
-  elements.rollPromptTitle.textContent = title;
-  elements.rollPromptMessage.textContent = message;
-  elements.rollPromptModal.style.setProperty("--ability-color", teams[team]?.color || teams.red.color);
+function requestAbilityRoll(team, title, message, action) {
+  state.pendingRoll = { ...action, team, title, message };
+  render();
+}
+
+function resolvePendingRoll(pending, roll) {
+  if (pending.kind === "attack") continueAttackAfterAttackRoll(pending.attackerId, pending.targetId, roll);
+  if (pending.kind === "defense") applyResolvedAttack(pending.attackerId, pending.targetId, pending.attackRoll, roll);
+}
+
+function renderPendingRoll() {
+  const pending = state.pendingRoll;
+  if (!pending) {
+    elements.rollPromptModal.hidden = true;
+    return;
+  }
+  elements.rollPromptTitle.textContent = pending.title;
+  elements.rollPromptMessage.textContent = pending.message;
+  elements.rollPromptModal.style.setProperty("--ability-color", teams[pending.team]?.color || teams.red.color);
+  const canRoll = canLocalControlTeam(pending.team);
+  elements.abilityRollButton.disabled = !canRoll;
+  elements.abilityRollButton.textContent = canRoll ? "Roll D6" : `Waiting for ${displayName(pending.team)}`;
   elements.rollPromptModal.hidden = false;
 }
 
 function showDiceResult(label, value, callback, team = null) {
+  const token = crypto.randomUUID();
+  state.sharedDiceResult = { token, label, value, team, expiresAt: Date.now() + 1300 };
+  displaySharedDiceResult(state.sharedDiceResult);
+  render();
+  setTimeout(() => {
+    if (callback) callback();
+  }, 1000);
+}
+
+function renderSharedDiceResult() {
+  const result = state.sharedDiceResult;
+  if (!result || Number(result.expiresAt) <= Date.now() || deviceState.lastDiceResultToken === result.token) return;
+  displaySharedDiceResult(result);
+}
+
+function displaySharedDiceResult(result) {
+  deviceState.lastDiceResultToken = result.token;
+  const { label, value, team } = result;
   elements.diceResultLabel.textContent = label;
   elements.diceResultValue.textContent = value;
   elements.diceResultOverlay.style.setProperty("--result-color", teams[team]?.color || teams[state.activeTeam]?.color || teams.red.color);
@@ -1103,7 +1201,6 @@ function showDiceResult(label, value, callback, team = null) {
   setTimeout(() => {
     elements.diceResultOverlay.hidden = true;
     elements.diceResultOverlay.classList.remove("multi");
-    if (callback) callback();
   }, 1000);
 }
 
@@ -1141,11 +1238,13 @@ function showAttackOutcomeReceipt(attacker, target, summary) {
 
 function showReceipt(content) {
   clearTimeout(state.receiptTimer);
-  state.receiptContent = content;
+  state.receiptId = crypto.randomUUID();
+  state.receiptContent = `<button class="receipt-close" type="button" aria-label="Close attack receipt">X</button>${content}`;
   state.receiptExpiresAt = Date.now() + 20000;
-  elements.attackReceipt.innerHTML = content;
+  deviceState.dismissedReceiptId = null;
+  elements.attackReceipt.innerHTML = state.receiptContent;
   elements.attackReceipt.hidden = false;
-  state.receiptTimer = setTimeout(hideAttackReceipt, 20000);
+  state.receiptTimer = setTimeout(() => hideAttackReceipt(false), 20000);
 }
 
 function hideAttackReceipt(clearState = true) {
@@ -1160,7 +1259,7 @@ function hideAttackReceipt(clearState = true) {
 
 function restoreAttackReceipt() {
   const remaining = Number(state.receiptExpiresAt || 0) - Date.now();
-  if (!state.receiptContent || remaining <= 0) {
+  if (!state.receiptContent || remaining <= 0 || deviceState.dismissedReceiptId === state.receiptId) {
     hideAttackReceipt(false);
     return;
   }
@@ -1168,6 +1267,11 @@ function restoreAttackReceipt() {
   elements.attackReceipt.innerHTML = state.receiptContent;
   elements.attackReceipt.hidden = false;
   state.receiptTimer = setTimeout(() => hideAttackReceipt(false), remaining);
+}
+
+function dismissAttackReceipt() {
+  deviceState.dismissedReceiptId = state.receiptId;
+  hideAttackReceipt(false);
 }
 
 function attackRollMessage(weaponCard, rule) {
@@ -1333,7 +1437,7 @@ function isCornerFortress(x, y) {
 
 function endTurn() {
   if (!canLocalControlTeam(state.activeTeam)) return;
-  if (state.pendingAttack || state.pendingRollCallback) return;
+  if (state.pendingAttack || state.pendingRoll) return;
   if (state.phase === "attack") {
     beginRetreats();
     return;
@@ -1368,7 +1472,7 @@ function advanceToNextTurn() {
   state.retreatPenalties = {};
   state.retreatSteps = 0;
   state.pendingAttack = null;
-  state.selectedSetId = teamLoadouts(state.activeTeam).find((loadout) => !loadout.ko)?.id || null;
+  deviceState.selectedSetId = teamLoadouts(state.activeTeam).find((loadout) => !loadout.ko)?.id || null;
   logEvent(`${displayName(state.activeTeam)} takes the turn.`, teams[state.activeTeam].color);
   showPass(state.activeTeam, "Roll once, then split movement between your Heroes.");
   render();
@@ -1391,11 +1495,22 @@ function finishByHealth() {
 function finishGame(winners, reason) {
   state.phase = "complete";
   state.pendingAttack = null;
-  state.pendingRollCallback = null;
-  state.pendingRollTeam = null;
+  state.pendingRoll = null;
+  state.victory = { winners, reason };
   elements.passModal.hidden = true;
   elements.rollPromptModal.hidden = true;
   hideAttackReceipt();
+  renderVictory();
+  logEvent(`${elements.victoryTitle.textContent} ${reason}.`, winners.length === 1 ? teams[winners[0]].color : "#e7c64a");
+  render();
+}
+
+function renderVictory() {
+  if (state.phase !== "complete" || !state.victory) {
+    elements.victoryModal.hidden = true;
+    return;
+  }
+  const { winners, reason } = state.victory;
   const winnerColor = winners.length === 1 ? teams[winners[0]].color : "#e7c64a";
   const winnerNames = winners.map((team) => titleCase(team));
   elements.victoryModal.style.setProperty("--winner-color", winnerColor);
@@ -1406,8 +1521,6 @@ function finishGame(winners, reason) {
     .map((team) => `<div style="--score-color:${teams[team].color}"><span>${titleCase(team)}</span><strong>${scores[team]} HP</strong></div>`)
     .join("");
   elements.victoryModal.hidden = false;
-  logEvent(`${elements.victoryTitle.textContent} ${reason}.`, winnerColor);
-  render();
 }
 
 function teamHealthScores() {
@@ -1440,21 +1553,20 @@ function showPass(team, message) {
 }
 
 function ensureSelected() {
-  if (state.selectedSetId && getLoadout(state.selectedSetId) && !getLoadout(state.selectedSetId).ko) return;
-  state.selectedSetId = state.loadouts.find((loadout) => !loadout.ko)?.id || null;
+  if (deviceState.selectedSetId && getLoadout(deviceState.selectedSetId)) return;
+  deviceState.selectedSetId = state.loadouts.find((loadout) => !loadout.ko)?.id || null;
 }
 
 function selectLoadout(id) {
   const loadout = getLoadout(id);
-  if (window.ArponOnline?.isOnline?.() && (loadout?.team !== state.activeTeam || !canLocalControlTeam(loadout?.team))) return;
-  if (!loadout?.ko) {
-    state.selectedSetId = id;
-    render();
+  if (loadout) {
+    deviceState.selectedSetId = id;
+    render(false);
   }
 }
 
 function getSelectedLoadout() {
-  return getLoadout(state.selectedSetId);
+  return getLoadout(deviceState.selectedSetId);
 }
 
 function getLoadout(id) {
@@ -1535,26 +1647,24 @@ function teamsForPlayerCount(count) {
 
 function exportGameState() {
   const snapshot = JSON.parse(JSON.stringify(state));
-  snapshot.pendingRollCallback = null;
   snapshot.receiptTimer = null;
   return snapshot;
 }
 
 function replaceGameState(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return;
+  const selectedSetId = deviceState.selectedSetId;
   Object.assign(state, snapshot, {
-    pendingRollCallback: null,
     receiptTimer: null,
   });
+  deviceState.selectedSetId = selectedSetId;
   state.loadouts = (state.loadouts || []).map((loadout) => ({
     ...loadout,
     hero: cardsById[loadout.hero?.id] || loadout.hero,
     armor: cardsById[loadout.armor?.id] || loadout.armor,
     weapon: cardsById[loadout.weapon?.id] || loadout.weapon,
   }));
-  elements.rollPromptModal.hidden = true;
   elements.passModal.hidden = true;
-  hideAttackReceipt(false);
   restoreAttackReceipt();
   render();
 }
@@ -1569,6 +1679,15 @@ function startOnlineGame(players, turnLimit = 40) {
   });
   state.turnLimit = turnLimit;
   startGame();
+}
+
+function reconcileOnlineState() {
+  if (state.phase === "draft" && allDraftsLocked() && window.ArponOnline?.isHost?.()) {
+    finalizeDraftsAndBeginWalls();
+    render();
+    return true;
+  }
+  return false;
 }
 
 function titleCase(value) {
@@ -1631,25 +1750,36 @@ elements.cardZoomModal.addEventListener("click", (event) => {
   if (event.target === elements.cardZoomModal) closeCardZoom();
 });
 document.addEventListener("click", (event) => {
+  const receiptClose = event.target.closest(".receipt-close");
+  if (receiptClose) {
+    dismissAttackReceipt();
+    return;
+  }
   const zoomButton = event.target.closest("[data-card-zoom]");
   if (!zoomButton) return;
   event.preventDefault();
   event.stopPropagation();
   openCardZoom(zoomButton.dataset.cardZoom);
 });
+document.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("button:not(:disabled)");
+  if (!button) return;
+  button.classList.remove("button-pulse");
+  requestAnimationFrame(() => button.classList.add("button-pulse"));
+  setTimeout(() => button.classList.remove("button-pulse"), 260);
+});
 document.querySelectorAll(".count-button").forEach((button) => button.addEventListener("click", () => setPlayerCount(Number(button.dataset.count))));
 elements.abilityRollButton.addEventListener("click", () => {
-  if (!canLocalControlTeam(state.activeTeam)) return;
-  const callback = state.pendingRollCallback;
-  if (!callback) return;
-  const rollLabel = elements.rollPromptTitle.textContent;
-  const rollTeam = state.pendingRollTeam;
-  state.pendingRollCallback = null;
-  state.pendingRollTeam = null;
-  elements.rollPromptModal.hidden = true;
+  const pending = state.pendingRoll;
+  if (!pending || !canLocalControlTeam(pending.team)) return;
+  const rollLabel = pending.title;
+  const rollTeam = pending.team;
+  state.pendingRoll = null;
   const result = rollDie();
-  showDiceResult(rollLabel, result, () => callback(result), rollTeam);
+  showDiceResult(rollLabel, result, () => resolvePendingRoll(pending, result), rollTeam);
 });
+elements.keepMovementButton.addEventListener("click", () => resolveMoveSpendChoice(false));
+elements.finishMovementButton.addEventListener("click", () => resolveMoveSpendChoice(true));
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab === button));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `${button.dataset.tab}Panel`));
@@ -1659,6 +1789,7 @@ document.querySelectorAll(".tab").forEach((button) => button.addEventListener("c
 window.ArponGame = {
   getState: exportGameState,
   replaceState: replaceGameState,
+  reconcileOnlineState,
   startOnlineGame,
   cards,
   actions: { startGame, rollForPhase, endTurn, placeWallSegment, placeHero, attackLoadout, moveLoadoutTo },

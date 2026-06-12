@@ -160,6 +160,28 @@ function escapeOnline(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character]);
 }
 
+function cloneOnlineState(value) {
+  return typeof structuredClone === "function" ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+}
+
+function mergeLocalDraftState(remoteState, localState, team = session.localTeam) {
+  if (!remoteState || !localState || !team || remoteState.phase !== "draft" || localState.phase !== "draft") return remoteState;
+  const merged = cloneOnlineState(remoteState);
+  merged.draftSelections ||= {};
+  merged.draftSwaps ||= {};
+  merged.draftLocked ||= {};
+  merged.wandeltChoices ||= {};
+
+  if (localState.draftSelections?.[team]) merged.draftSelections[team] = cloneOnlineState(localState.draftSelections[team]);
+  if (localState.draftSwaps?.[team] !== undefined) merged.draftSwaps[team] = localState.draftSwaps[team];
+  if (localState.draftLocked?.[team] !== undefined) merged.draftLocked[team] = localState.draftLocked[team];
+
+  Object.entries(localState.wandeltChoices || {}).forEach(([key, value]) => {
+    if (key.startsWith(`${team}_`)) merged.wandeltChoices[key] = value;
+  });
+  return merged;
+}
+
 async function enterRoom(room) {
   session.active = true;
   session.gameId = room.game.id;
@@ -276,13 +298,16 @@ async function handleRoomState(room) {
 
   session.started = true;
   if (room.game.game_state) {
-    const hash = JSON.stringify(room.game.game_state);
+    const localState = window.ArponGame.getState();
+    const incomingState = mergeLocalDraftState(room.game.game_state, localState);
+    const hash = JSON.stringify(incomingState);
     if (hash !== session.lastStateHash) {
       session.lastStateHash = hash;
       session.applyingRemote = true;
-      window.ArponGame.replaceState(room.game.game_state);
+      window.ArponGame.replaceState(incomingState);
       session.applyingRemote = false;
     }
+    window.ArponGame.reconcileOnlineState?.();
     onlineElements.lobbyModal.hidden = true;
     onlineElements.onlineRoomModal.hidden = true;
     return;
@@ -304,7 +329,7 @@ function schedulePush(snapshot) {
   session.pushTimer = setTimeout(() => pushGameState(snapshot, hash), 120);
 }
 
-async function pushGameState(snapshot, hash) {
+async function pushGameState(snapshot, hash, retrying = false) {
   if (!session.active || session.applyingRemote) return;
   try {
     const room = await rpc("push_arpon_game_state", {
@@ -317,7 +342,22 @@ async function pushGameState(snapshot, hash) {
     session.revision = Number(room.game.revision || 0);
     session.lastStateHash = hash;
   } catch {
-    await pollRoom();
+    if (retrying || snapshot.phase !== "draft") {
+      await pollRoom();
+      return;
+    }
+    try {
+      const latestRoom = await rpc("get_arpon_online_room", {
+        p_game_id: session.gameId,
+        p_player_token: session.token,
+      });
+      session.room = latestRoom;
+      session.revision = Number(latestRoom.game.revision || 0);
+      const merged = mergeLocalDraftState(latestRoom.game.game_state, snapshot);
+      await pushGameState(merged, JSON.stringify(merged), true);
+    } catch {
+      await pollRoom();
+    }
   }
 }
 
@@ -372,6 +412,7 @@ onlineElements.cancelOnlineButton.addEventListener("click", async () => {
 window.ArponOnline = {
   canControlTeam: (team) => !session.active || session.localTeam === team,
   getLocalTeam: () => session.localTeam,
+  isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
   onGameRendered: schedulePush,
   onResetToLobby: () => {

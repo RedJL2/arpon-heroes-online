@@ -200,7 +200,7 @@
         </div>
         <div class="rules-grid">
           <article><strong>1. Make Sets</strong><p>Each player receives three random cards of each type. Choose two Heroes, two Armors, and two Weapons, then arrange them into two sets. Matching a Hero with its Armor adds 100 HP; matching its Weapon adds 100 DP.</p></article>
-          <article><strong>2. Place Walls</strong><p>Players place four walls before passing setup to the next player, until 24 walls are on the field. Walls may be in your base, neutral territory, or an unoccupied base, but never in an occupied enemy base.</p></article>
+          <article><strong>2. Place Walls</strong><p>Players place four walls before passing setup to the next player, until 36 walls are on the field. Walls may be in your base, neutral territory, or an unoccupied base, but never in an occupied enemy base.</p></article>
           <article><strong>3. Move</strong><p>Roll once and spend every movement step before attacking. You may take a legal detour or return to the same square to use the full roll, and may split steps between either Hero. A diagonal may round one wall corner, but cannot pass through a corner closed by two walls.</p></article>
           <article><strong>4. Attack</strong><p>After movement, every Hero may attack every reachable enemy once. Each enemy resolves separately. Heroes shield Heroes behind them; walls block attacks unless an ability says otherwise.</p></article>
           <article><strong>5. Retreat</strong><p>After attacks, each Hero that attacked may roll once and retreat. Retreat bonuses and penalties apply. You may also stay put.</p></article>
@@ -225,6 +225,18 @@
         <h2 id="rollPromptTitle">Roll for ability</h2>
         <p id="rollPromptMessage">Need 1-3 for +100 DP.</p>
         <button class="primary-action large" id="abilityRollButton" type="button">Roll D6</button>
+      </section>
+    </div>
+
+    <div class="modal-backdrop move-choice-backdrop" id="moveChoiceModal" hidden>
+      <section class="modal move-choice-modal">
+        <p class="eyebrow">Choose movement</p>
+        <h2>Split or Finish?</h2>
+        <p id="moveChoiceMessage">Keep movement for your other Hero, or use a longer legal route and attack.</p>
+        <div class="move-choice-actions">
+          <button class="secondary-action large" id="keepMovementButton" type="button">Keep Movement</button>
+          <button class="primary-action large" id="finishMovementButton" type="button">Finish Movement</button>
+        </div>
       </section>
     </div>
 
