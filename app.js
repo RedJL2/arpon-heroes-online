@@ -10,7 +10,7 @@ const teams = {
   blue: { id: "blue", name: "Blue Player", color: "#167ec4", short: "B" },
 };
 
-const cardAsset = (fileName) => `./assets/cards/${fileName}`;
+const cardAsset = (fileName) => `./assets/${fileName}`;
 const hero = (id, family, name, image, ability, text, effects = {}) => ({ id, kind: "hero", family, name, image: cardAsset(image), ability, text, effects });
 const armor = (id, family, name, hp, image, ability, text, effects = {}) => ({ id, kind: "armor", family, name, hp, image: cardAsset(image), ability, text, effects });
 const weapon = (id, family, name, dp, image, ability, text, effects = {}) => ({ id, kind: "weapon", family, name, dp, image: cardAsset(image), ability, text, effects });
