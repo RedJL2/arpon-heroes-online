@@ -451,24 +451,41 @@ button:disabled {
 .hero-chip {
   display: grid;
   width: 100%;
-  min-height: 52px;
+  min-height: 62px;
   margin-top: 5px;
-  padding: 4px;
+  padding: 5px;
   align-items: center;
-  grid-template-columns: 24px 38px 1fr;
-  gap: 6px;
-  border: 1px solid #c7cacf;
+  grid-template-columns: 28px 44px 1fr;
+  gap: 7px;
+  border: 2px solid #c7cacf;
   border-left: 4px solid var(--team-color);
   border-radius: 4px;
-  background: #fff;
+  background:
+    linear-gradient(rgba(255, 255, 252, 0.94), rgba(255, 255, 252, 0.94)),
+    url("./assets/stone-wall.png") center / 260px auto;
   cursor: pointer;
   text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease, filter 160ms ease;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.hero-chip:hover,
+.hero-chip:focus-visible {
+  border-color: var(--team-color);
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--team-color) 70%, #24272b);
+  transform: translateY(-1px);
+}
+
+.hero-chip:active {
+  transform: translateY(1px) scale(0.99);
 }
 
 .hero-chip.selected {
   border-color: #2b2e33;
   background: #f1f1ee;
-  box-shadow: 2px 2px 0 #25282d;
+  box-shadow: 0 0 0 2px var(--team-color), 3px 4px 0 #25282d;
 }
 
 .hero-chip.ko {
@@ -477,18 +494,27 @@ button:disabled {
 }
 
 .hero-chip img {
-  width: 38px;
-  height: 44px;
+  width: 100%;
+  height: 100%;
   border: 1px solid #292c30;
   object-fit: cover;
   object-position: center 32%;
   image-rendering: pixelated;
 }
 
+.chip-portrait {
+  display: block;
+  width: 44px;
+  height: 50px;
+  overflow: hidden;
+  border: 1px solid #292c30;
+  background: var(--team-color);
+}
+
 .hero-number {
   display: grid;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 2px solid var(--team-color);
   background: #fff;
@@ -499,33 +525,57 @@ button:disabled {
 .chip-meta {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 4px;
   font-size: 0.7rem;
 }
 
-.chip-meta strong {
+.chip-title {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.chip-title strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chip-meta span {
-  color: var(--muted);
-  font-size: 0.64rem;
+.chip-health-number {
+  color: var(--team-color);
+  font-size: 0.72rem;
+  font-weight: 900;
 }
 
-.chip-meta i {
+.chip-health-number small {
+  color: var(--muted);
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+.chip-health-bar {
   display: block;
   width: 100%;
-  height: 4px;
-  background: #d8dbde;
+  height: 7px;
+  overflow: hidden;
+  border: 1px solid #25282d;
+  background: #c72d35;
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.25);
 }
 
-.chip-meta b {
+.chip-health-bar b {
   display: block;
   width: var(--hp);
   height: 100%;
-  background: var(--team-color);
+  background: #2caf59;
+  transition: width 300ms steps(5, end);
+}
+
+.chip-hold-hint {
+  color: #777d83;
+  font-size: 0.48rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .battlefield-section {
@@ -703,6 +753,7 @@ button:disabled {
   background: rgba(22, 126, 196, 0.58);
   box-shadow: 0 0 0 2px #145384;
   content: "";
+  animation: option-breathe 1.2s ease-in-out infinite alternate;
 }
 
 .cell.retreat-option::after {
@@ -904,6 +955,13 @@ button:disabled {
   }
 }
 
+@keyframes option-breathe {
+  to {
+    inset: 20%;
+    filter: brightness(1.14);
+  }
+}
+
 .selected-card {
   min-height: 154px;
   padding: 12px;
@@ -1084,10 +1142,16 @@ button:disabled {
 
 .roll-prompt-backdrop {
   z-index: 230;
+  background: rgba(20, 22, 25, 0.58);
+  pointer-events: none;
 }
 
 .move-choice-backdrop {
   z-index: 235;
+}
+
+.roll-prompt-modal {
+  pointer-events: auto;
 }
 
 .move-choice-modal {
@@ -1929,6 +1993,89 @@ body.draft-mode .hero-list {
   image-rendering: pixelated;
 }
 
+.set-preview-backdrop {
+  z-index: 240;
+  background:
+    linear-gradient(rgba(18, 19, 21, 0.86), rgba(18, 19, 21, 0.86)),
+    url("./assets/stone-wall.png") center / 620px auto;
+  pointer-events: none;
+}
+
+.set-preview-modal {
+  width: min(1180px, 100%);
+  max-height: calc(100vh - 24px);
+  padding: 18px;
+  border: 6px solid #eee9d8;
+  border-radius: 6px;
+  background:
+    linear-gradient(rgba(35, 37, 40, 0.91), rgba(35, 37, 40, 0.91)),
+    url("./assets/stone-wall.png") center / 620px auto;
+  color: #fff;
+  box-shadow: 0 0 0 8px var(--preview-color), 14px 16px 0 rgba(0, 0, 0, 0.42);
+  pointer-events: auto;
+}
+
+.set-preview-heading {
+  display: flex;
+  min-height: 60px;
+  margin-bottom: 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.set-preview-heading .eyebrow {
+  margin: 0 0 3px;
+  color: #ddd7c8;
+}
+
+.set-preview-heading h2 {
+  margin: 0;
+  color: var(--preview-color);
+  font-size: 1.45rem;
+}
+
+.set-preview-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.set-preview-cards article {
+  display: grid;
+  min-width: 0;
+  padding: 9px;
+  border: 3px solid #e8e3d3;
+  border-top-color: var(--preview-color);
+  border-radius: 4px;
+  background: #f8f7f0;
+  color: #202328;
+  gap: 6px;
+  box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.32);
+}
+
+.set-preview-cards img {
+  width: 100%;
+  min-height: 0;
+  max-height: calc(100vh - 230px);
+  aspect-ratio: 11 / 15;
+  border: 2px solid #202328;
+  object-fit: contain;
+  background: #111;
+  image-rendering: pixelated;
+}
+
+.set-preview-cards strong {
+  color: var(--preview-color);
+  font-size: 0.82rem;
+}
+
+.set-preview-cards span {
+  color: #535a62;
+  font-size: 0.62rem;
+  line-height: 1.3;
+}
+
 .attack-receipt {
   position: fixed;
   z-index: 260;
@@ -2197,13 +2344,60 @@ body.draft-mode .hero-list {
 
   .arena-layout {
     display: flex;
-    padding: 10px;
+    padding: 10px 10px 112px;
     flex-direction: column;
   }
 
   .squad-panel,
   .command-panel {
     max-height: none;
+  }
+
+  body:not(.draft-mode) .hero-list {
+    position: fixed;
+    z-index: 65;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    overflow-x: auto;
+    padding: 8px 10px 10px;
+    border-top: 4px solid #26292d;
+    background:
+      linear-gradient(rgba(35, 37, 39, 0.94), rgba(35, 37, 39, 0.94)),
+      url("./assets/stone-wall.png") center / 420px auto;
+    box-shadow: 0 -7px 18px rgba(0, 0, 0, 0.32);
+    gap: 10px;
+    scroll-snap-type: x proximity;
+  }
+
+  body:not(.draft-mode) .team-section {
+    display: grid;
+    min-width: 440px;
+    padding: 0;
+    grid-template-columns: repeat(2, 210px);
+    gap: 7px;
+    border: 0;
+    scroll-snap-align: start;
+  }
+
+  body:not(.draft-mode) .team-section + .team-section {
+    margin: 0;
+  }
+
+  body:not(.draft-mode) .team-section h2 {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 0.58rem;
+  }
+
+  body:not(.draft-mode) .hero-chip {
+    min-height: 70px;
+    margin: 0;
+  }
+
+  .attack-receipt {
+    bottom: 118px;
   }
 
   .battlefield-section {
@@ -2229,6 +2423,25 @@ body.draft-mode .hero-list {
 
   body.draft-mode .setup-panel {
     grid-template-columns: 1fr;
+  }
+
+  .set-preview-modal {
+    width: calc(100% - 18px);
+    padding: 12px;
+  }
+
+  .set-preview-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .set-preview-cards article {
+    padding: 4px;
+  }
+
+  .set-preview-cards strong,
+  .set-preview-cards span {
+    display: none;
   }
 }
 
@@ -2352,8 +2565,46 @@ body.draft-mode .hero-list {
 
   .attack-receipt {
     right: 8px;
-    bottom: 8px;
+    bottom: 112px;
     width: calc(100vw - 16px);
+  }
+
+  body:not(.draft-mode) .team-section {
+    min-width: 360px;
+    grid-template-columns: repeat(2, 172px);
+  }
+
+  body:not(.draft-mode) .hero-chip {
+    min-height: 66px;
+    grid-template-columns: 24px 39px 1fr;
+    gap: 5px;
+  }
+
+  body:not(.draft-mode) .chip-portrait {
+    width: 39px;
+    height: 48px;
+  }
+
+  body:not(.draft-mode) .hero-number {
+    width: 24px;
+    height: 24px;
+    font-size: 0.65rem;
+  }
+
+  body:not(.draft-mode) .chip-title strong {
+    font-size: 0.62rem;
+  }
+
+  body:not(.draft-mode) .chip-health-number {
+    font-size: 0.62rem;
+  }
+
+  .set-preview-heading h2 {
+    font-size: 1rem;
+  }
+
+  .set-preview-heading .eyebrow {
+    display: none;
   }
 
   .move-choice-actions {

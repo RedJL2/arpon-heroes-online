@@ -11,8 +11,8 @@ const onlineElements = Object.fromEntries(
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
-const teamNames = ["Red", "Green", "Blue", "Yellow"];
-const teamKeys = ["red", "green", "blue", "yellow"];
+const teamNames = ["Red", "Green", "Yellow", "Blue"];
+const teamKeys = ["red", "green", "yellow", "blue"];
 const teamColors = { red: "#b71f24", green: "#16844e", blue: "#184fa8", yellow: "#d1a900" };
 const session = {
   active: false,

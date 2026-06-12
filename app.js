@@ -2,6 +2,8 @@ const BOARD_SIZE = 14;
 const MAX_RANGE = 13;
 const TOTAL_WALLS = 36;
 const WALLS_PER_SETUP_TURN = 4;
+const TWO_PLAYER_TURN_LIMIT = 24;
+const MULTIPLAYER_TURN_LIMIT = 40;
 const teamOrder = ["red", "green", "yellow", "blue"];
 const teams = {
   red: { id: "red", name: "Red Player", color: "#d92d2d", short: "R" },
@@ -87,7 +89,7 @@ const state = {
   placeSetIndex: 0,
   firstTeam: "red",
   setupRolls: {},
-  turnLimit: 40,
+  turnLimit: MULTIPLAYER_TURN_LIMIT,
   turnNumber: 1,
   dice: null,
   movementLeft: 0,
@@ -116,6 +118,10 @@ const deviceState = {
   dismissedReceiptId: null,
   lastDiceResultToken: null,
   pendingMoveChoice: null,
+  setPreviewId: null,
+  setPreviewTimer: null,
+  suppressNextSetClick: false,
+  turnLimitCustomized: false,
 };
 
 const elements = Object.fromEntries(
@@ -127,6 +133,7 @@ const elements = Object.fromEntries(
     "rollPromptModal", "rollPromptTitle", "rollPromptMessage", "abilityRollButton", "diceResultOverlay", "diceResultLabel", "diceResultValue",
     "turnLimitInput", "turnLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
     "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton",
+    "setPreviewModal", "setPreviewTitle", "setPreviewCards", "closeSetPreviewButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -136,6 +143,10 @@ function activeTeams() {
 
 function wallsPerPlayer() {
   return TOTAL_WALLS / activeTeams().length;
+}
+
+function defaultTurnLimit(playerCount) {
+  return playerCount === 2 ? TWO_PLAYER_TURN_LIMIT : MULTIPLAYER_TURN_LIMIT;
 }
 
 function resetToLobby() {
@@ -171,7 +182,10 @@ function resetToLobby() {
   deviceState.lastDiceResultToken = null;
   deviceState.pendingMoveChoice = null;
   state.turnNumber = 1;
+  state.turnLimit = defaultTurnLimit(state.playerCount);
   state.log = [];
+  deviceState.turnLimitCustomized = false;
+  closeSetPreview();
   elements.lobbyModal.hidden = false;
   elements.passModal.hidden = true;
   elements.victoryModal.hidden = true;
@@ -210,6 +224,7 @@ function renderLobby() {
 function setPlayerCount(count) {
   state.playerCount = count;
   state.playerTeams = count === 2 ? ["red", "yellow"] : count === 3 ? ["red", "green", "yellow"] : [...teamOrder];
+  if (!deviceState.turnLimitCustomized) state.turnLimit = defaultTurnLimit(count);
   renderLobby();
 }
 
@@ -286,6 +301,7 @@ function render(sync = true) {
   renderPendingRoll();
   renderSharedDiceResult();
   renderVictory();
+  renderSetPreview();
   if (sync) window.ArponOnline?.onGameRendered?.(exportGameState());
 }
 
@@ -652,12 +668,83 @@ function renderHeroList() {
   elements.heroList.innerHTML = activeTeams()
     .map((team) => `<section class="team-section" style="--team-color:${teams[team].color}"><h2>${displayName(team)}</h2>${teamLoadouts(team).map(loadoutChip).join("")}</section>`)
     .join("");
-  elements.heroList.querySelectorAll("[data-loadout-id]").forEach((button) => button.addEventListener("click", () => selectLoadout(button.dataset.loadoutId)));
+  elements.heroList.querySelectorAll("[data-loadout-id]").forEach(bindLoadoutChipInteractions);
 }
 
 function loadoutChip(loadout) {
   const percent = loadout.maxHp ? Math.max(0, (loadout.currentHp / loadout.maxHp) * 100) : 0;
-  return `<button class="hero-chip ${loadout.id === deviceState.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%" data-loadout-id="${loadout.id}" type="button"><span class="hero-number">${loadout.setNumber}</span><img src="${loadout.hero.image}" alt="" /><span class="chip-meta"><strong>${loadout.name}</strong><span>${Math.max(0, loadout.currentHp)} / ${loadout.maxHp} HP</span><i><b></b></i></span></button>`;
+  const currentHp = Math.max(0, loadout.currentHp);
+  return `<button class="hero-chip ${loadout.id === deviceState.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%;--team-color:${teams[loadout.team].color}" data-loadout-id="${loadout.id}" type="button" aria-label="View ${loadout.name}, Hero ${loadout.setNumber}, ${currentHp} of ${loadout.maxHp} HP">
+    <span class="hero-number">${loadout.setNumber}</span>
+    <span class="chip-portrait"><img src="${loadout.hero.image}" alt="" /></span>
+    <span class="chip-meta">
+      <span class="chip-title"><strong>${loadout.name}</strong><span class="chip-health-number">${currentHp}<small> / ${loadout.maxHp} HP</small></span></span>
+      <i class="chip-health-bar"><b></b></i>
+      <small class="chip-hold-hint">Hold to inspect set</small>
+    </span>
+  </button>`;
+}
+
+function bindLoadoutChipInteractions(button) {
+  button.addEventListener("click", (event) => {
+    if (deviceState.suppressNextSetClick) {
+      event.preventDefault();
+      deviceState.suppressNextSetClick = false;
+      return;
+    }
+    selectLoadout(button.dataset.loadoutId);
+  });
+  button.addEventListener("contextmenu", (event) => event.preventDefault());
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    clearTimeout(deviceState.setPreviewTimer);
+    button.setPointerCapture?.(event.pointerId);
+    deviceState.setPreviewTimer = setTimeout(() => {
+      deviceState.suppressNextSetClick = true;
+      openSetPreview(button.dataset.loadoutId);
+    }, 280);
+  });
+  const release = () => {
+    clearTimeout(deviceState.setPreviewTimer);
+    deviceState.setPreviewTimer = null;
+    if (deviceState.setPreviewId) {
+      closeSetPreview();
+      setTimeout(() => {
+        deviceState.suppressNextSetClick = false;
+      }, 0);
+    }
+  };
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+}
+
+function openSetPreview(loadoutId) {
+  const loadout = getLoadout(loadoutId);
+  if (!loadout) return;
+  deviceState.setPreviewId = loadoutId;
+  renderSetPreview();
+}
+
+function closeSetPreview() {
+  clearTimeout(deviceState.setPreviewTimer);
+  deviceState.setPreviewTimer = null;
+  deviceState.setPreviewId = null;
+  if (elements.setPreviewModal) elements.setPreviewModal.hidden = true;
+}
+
+function renderSetPreview() {
+  if (!elements.setPreviewModal) return;
+  const loadout = getLoadout(deviceState.setPreviewId);
+  if (!loadout) {
+    elements.setPreviewModal.hidden = true;
+    return;
+  }
+  elements.setPreviewModal.style.setProperty("--preview-color", teams[loadout.team].color);
+  elements.setPreviewTitle.textContent = `${displayName(loadout.team)} · Hero ${loadout.setNumber}: ${loadout.name}`;
+  elements.setPreviewCards.innerHTML = [loadout.hero, loadout.armor, loadout.weapon]
+    .map((card) => `<article><img src="${card.image}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
+    .join("");
+  elements.setPreviewModal.hidden = false;
 }
 
 function renderSelectedPanel() {
@@ -707,7 +794,7 @@ function onCellClick(x, y) {
 function requestMoveSpendChoice(loadout, move) {
   deviceState.pendingMoveChoice = { loadoutId: loadout.id, move };
   const keep = Math.max(0, state.movementLeft - Math.max(0, move.steps - (state.moveBonusUsed.includes(loadout.id) ? 0 : (loadout.hero.effects.moveBonus || 0))));
-  elements.moveChoiceMessage.textContent = `This square can use ${move.steps} steps or a legal ${move.fullSteps}-step route. Keep ${keep} movement to split, or finish movement and attack.`;
+  elements.moveChoiceMessage.textContent = `This square is ${move.steps} steps away, but a legal ${move.fullSteps}-step route also reaches it. Keep ${keep} movement to split between Heroes, or spend the full route and begin attacking.`;
   elements.keepMovementButton.textContent = `Move ${move.steps} · Keep ${keep}`;
   elements.finishMovementButton.textContent = `Move ${move.fullSteps} · Attack`;
   elements.moveChoiceModal.style.setProperty("--team-color", teams[loadout.team].color);
@@ -729,6 +816,14 @@ function onPawnClick(loadoutId) {
   const selected = getSelectedLoadout();
   if (!clicked || clicked.ko) return;
   if (selected && clicked.team !== selected.team && canAttack(selected, clicked)) return attackLoadout(selected, clicked);
+  if (selected && clicked.id === selected.id) {
+    const move = getHighlights(selected).move.get(posKey(clicked.x, clicked.y));
+    if (move) {
+      if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
+      else moveLoadoutTo(selected, move);
+      return;
+    }
+  }
   selectLoadout(loadoutId);
 }
 
@@ -1669,7 +1764,7 @@ function replaceGameState(snapshot) {
   render();
 }
 
-function startOnlineGame(players, turnLimit = 40) {
+function startOnlineGame(players) {
   const playerTeams = teamsForPlayerCount(players.length);
   state.playerCount = players.length;
   state.playerTeams = playerTeams;
@@ -1677,7 +1772,8 @@ function startOnlineGame(players, turnLimit = 40) {
   players.forEach((player, index) => {
     state.playerNames[playerTeams[index]] = player.display_name || `Player ${index + 1}`;
   });
-  state.turnLimit = turnLimit;
+  state.turnLimit = defaultTurnLimit(players.length);
+  deviceState.turnLimitCustomized = false;
   startGame();
 }
 
@@ -1732,6 +1828,7 @@ elements.endTurnButton.addEventListener("click", endTurn);
 elements.resetButton.addEventListener("click", resetToLobby);
 elements.startGameButton.addEventListener("click", startGame);
 elements.turnLimitInput.addEventListener("input", () => {
+  deviceState.turnLimitCustomized = true;
   state.turnLimit = Number(elements.turnLimitInput.value);
   elements.turnLimitValue.textContent = `${state.turnLimit} turns`;
 });
@@ -1780,6 +1877,8 @@ elements.abilityRollButton.addEventListener("click", () => {
 });
 elements.keepMovementButton.addEventListener("click", () => resolveMoveSpendChoice(false));
 elements.finishMovementButton.addEventListener("click", () => resolveMoveSpendChoice(true));
+elements.closeSetPreviewButton.addEventListener("click", closeSetPreview);
+elements.setPreviewModal.addEventListener("pointerup", closeSetPreview);
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab === button));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `${button.dataset.tab}Panel`));
