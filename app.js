@@ -1,6 +1,6 @@
 const BOARD_SIZE = 14;
 const MAX_RANGE = 13;
-const TOTAL_WALLS = 36;
+const DEFAULT_WALL_LIMIT = 24;
 const WALLS_PER_SETUP_TURN = 4;
 const TWO_PLAYER_TURN_LIMIT = 24;
 const MULTIPLAYER_TURN_LIMIT = 40;
@@ -70,6 +70,10 @@ const cards = [
 
 const cardsById = Object.fromEntries(cards.map((card) => [card.id, card]));
 const state = {
+  mode: "local",
+  matchId: crypto.randomUUID(),
+  ranked: false,
+  robotTeams: [],
   phase: "lobby",
   playerCount: 4,
   playerTeams: [...teamOrder],
@@ -85,6 +89,7 @@ const state = {
   wallOwnerTurn: "red",
   wallCounts: {},
   walls: [],
+  wallLimit: DEFAULT_WALL_LIMIT,
   placeTeamIndex: 0,
   placeSetIndex: 0,
   firstTeam: "red",
@@ -123,6 +128,8 @@ const deviceState = {
   setPreviewTimer: null,
   suppressNextSetClick: false,
   turnLimitCustomized: false,
+  robotActing: false,
+  robotTimer: null,
 };
 
 const elements = Object.fromEntries(
@@ -132,7 +139,8 @@ const elements = Object.fromEntries(
     "startGameButton", "passModal", "passEmblem", "passTitle", "passMessage", "passButton", "rulesModal", "rulesButton", "closeRulesButton",
     "centerRollButton", "centerDiceIcon", "centerDiceLabel", "centerEndTurnButton", "cardZoomModal", "cardZoomImage", "cardZoomTitle", "closeCardZoomButton",
     "rollPromptModal", "rollPromptTitle", "rollPromptMessage", "abilityRollButton", "diceResultOverlay", "diceResultLabel", "diceResultValue",
-    "turnLimitInput", "turnLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
+    "turnLimitInput", "turnLimitValue", "wallLimitInput", "wallLimitValue", "startSoloButton", "soloTurnLimitInput", "soloTurnLimitValue",
+    "soloWallLimitInput", "soloWallLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
     "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton",
     "stayConfirmModal", "stayConfirmMessage", "cancelStayButton", "confirmStayButton",
     "setPreviewModal", "setPreviewTitle", "setPreviewCards", "closeSetPreviewButton",
@@ -144,7 +152,13 @@ function activeTeams() {
 }
 
 function wallsPerPlayer() {
-  return TOTAL_WALLS / activeTeams().length;
+  return Math.ceil(state.wallLimit / activeTeams().length);
+}
+
+function wallTarget(team) {
+  const index = activeTeams().indexOf(team);
+  const base = Math.floor(state.wallLimit / activeTeams().length);
+  return base + (index >= 0 && index < state.wallLimit % activeTeams().length ? 1 : 0);
 }
 
 function defaultTurnLimit(playerCount) {
@@ -152,7 +166,12 @@ function defaultTurnLimit(playerCount) {
 }
 
 function resetToLobby() {
+  clearTimeout(deviceState.robotTimer);
   window.ArponOnline?.onResetToLobby?.();
+  state.mode = "local";
+  state.matchId = crypto.randomUUID();
+  state.ranked = false;
+  state.robotTeams = [];
   state.phase = "lobby";
   state.playerCount = 4;
   state.playerTeams = [...teamOrder];
@@ -162,6 +181,7 @@ function resetToLobby() {
   deviceState.selectedSetId = null;
   state.wallCounts = {};
   state.walls = [];
+  state.wallLimit = DEFAULT_WALL_LIMIT;
   state.dice = null;
   state.movementLeft = 0;
   state.hasRolled = false;
@@ -190,6 +210,8 @@ function resetToLobby() {
   state.turnLimit = defaultTurnLimit(state.playerCount);
   state.log = [];
   deviceState.turnLimitCustomized = false;
+  deviceState.robotActing = false;
+  deviceState.robotTimer = null;
   closeSetPreview();
   elements.lobbyModal.hidden = false;
   elements.passModal.hidden = true;
@@ -199,6 +221,16 @@ function resetToLobby() {
   hideAttackReceipt();
   renderLobby();
   render();
+}
+
+function rollPendingAbility() {
+  const pending = state.pendingRoll;
+  if (!pending || !canLocalControlTeam(pending.team)) return;
+  const rollLabel = pending.title;
+  const rollTeam = pending.team;
+  state.pendingRoll = null;
+  const result = rollDie();
+  showDiceResult(rollLabel, result, () => resolvePendingRoll(pending, result), rollTeam);
 }
 
 function renderLobby() {
@@ -223,6 +255,8 @@ function renderLobby() {
   );
   elements.turnLimitInput.value = state.turnLimit;
   elements.turnLimitValue.textContent = `${state.turnLimit} turns`;
+  elements.wallLimitInput.value = state.wallLimit;
+  elements.wallLimitValue.textContent = `${state.wallLimit} walls`;
   elements.startGameButton.disabled = state.playerTeams.length !== state.playerCount;
 }
 
@@ -242,6 +276,7 @@ function toggleLobbyTeam(team) {
 function startGame() {
   if (state.playerTeams.length !== state.playerCount) return;
   state.phase = "draft";
+  state.matchId ||= crypto.randomUUID();
   state.setupTeamIndex = 0;
   state.activeTeam = activeTeams()[0];
   state.loadouts = [];
@@ -270,7 +305,7 @@ function startGame() {
   dealDraftHands();
   elements.lobbyModal.hidden = true;
   logEvent("Best of 3 begins. Each player chooses two cards from each three-card hand.", "#30343b");
-  if (!window.ArponOnline?.isOnline?.()) showPass(activeTeams()[0], "Your private Set A deal is ready.");
+  if (!window.ArponOnline?.isOnline?.() && state.mode !== "solo") showPass(activeTeams()[0], "Your private Set A deal is ready.");
   render();
 }
 
@@ -293,6 +328,72 @@ function dealDraftHands() {
   });
 }
 
+function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit = TWO_PLAYER_TURN_LIMIT) {
+  const robotTeams = enemyCount === 1 ? ["yellow"] : enemyCount === 2 ? ["green", "yellow"] : ["green", "yellow", "blue"];
+  state.mode = "solo";
+  state.matchId = crypto.randomUUID();
+  state.ranked = false;
+  state.robotTeams = robotTeams;
+  state.playerTeams = ["red", ...robotTeams];
+  state.playerCount = state.playerTeams.length;
+  state.playerNames = Object.fromEntries(teamOrder.map((team) => [team, teams[team].name]));
+  state.playerNames.red = "You";
+  robotTeams.forEach((team, index) => {
+    state.playerNames[team] = `Robot ${index + 1}`;
+  });
+  state.wallLimit = Number(wallLimit);
+  state.turnLimit = Number(turnLimit);
+  startGame();
+  robotTeams.forEach((team) => {
+    ["hero", "armor", "weapon"].forEach((kind) => {
+      state.draftSelections[team][kind] = state.draftHands[team][kind].slice(0, 2);
+    });
+    state.draftLocked[team] = true;
+  });
+  render();
+}
+
+function beginSoloArena() {
+  state.firstTeam = "red";
+  state.activeTeam = "red";
+  state.wallOwnerTurn = "red";
+  state.walls = generateRandomWalls(state.wallLimit);
+  state.wallCounts = Object.fromEntries(activeTeams().map((team) => [team, 0]));
+  state.walls.forEach((wall) => {
+    state.wallCounts[wall.owner] = (state.wallCounts[wall.owner] || 0) + 1;
+  });
+  state.robotTeams.forEach(placeRobotSquad);
+  state.phase = "place";
+  state.placeTeamIndex = 0;
+  state.placeSetIndex = 0;
+  deviceState.selectedSetId = teamLoadouts("red")[0]?.id || null;
+  logEvent(`${state.walls.length} random walls generated. Place your two Heroes.`, "#30343b");
+  render();
+}
+
+function generateRandomWalls(limit) {
+  const candidates = [];
+  for (let y = 1; y < BOARD_SIZE; y += 1) {
+    for (let x = 0; x < BOARD_SIZE; x += 1) candidates.push({ axis: "h", x, y });
+  }
+  for (let x = 1; x < BOARD_SIZE; x += 1) {
+    for (let y = 0; y < BOARD_SIZE; y += 1) candidates.push({ axis: "v", x, y });
+  }
+  return shuffle(candidates)
+    .filter((wall) => adjacentCellsForWall(wall.axis, wall.x, wall.y).every((cell) => inBounds(cell.x, cell.y) && !isCornerFortress(cell.x, cell.y)))
+    .slice(0, Math.max(0, limit))
+    .map((wall, index) => ({ ...wall, owner: activeTeams()[index % activeTeams().length] }));
+}
+
+function placeRobotSquad(team) {
+  const choices = shuffle(Array.from({ length: BOARD_SIZE * BOARD_SIZE }, (_, index) => ({ x: index % BOARD_SIZE, y: Math.floor(index / BOARD_SIZE) }))
+    .filter((cell) => zoneOfCell(cell.x, cell.y) === team && !isCornerFortress(cell.x, cell.y)));
+  teamLoadouts(team).forEach((loadout) => {
+    const cell = choices.find((candidate) => !loadoutAt(candidate.x, candidate.y));
+    if (cell) Object.assign(loadout, cell, { placed: true });
+  });
+}
+
 function render(sync = true) {
   document.body.classList.toggle("draft-mode", state.phase === "draft");
   ensureSelected();
@@ -307,6 +408,7 @@ function render(sync = true) {
   renderSharedDiceResult();
   renderVictory();
   renderSetPreview();
+  scheduleRobotAction();
   if (sync) window.ArponOnline?.onGameRendered?.(exportGameState());
 }
 
@@ -322,9 +424,15 @@ function renderTopbar() {
   elements.moveLabel.textContent = state.phase === "move" ? state.movementLeft : state.phase === "retreat" ? state.retreatSteps : `${state.turnNumber}/${state.turnLimit}`;
   elements.diceIcon.textContent = state.dice || "D6";
   elements.diceLabel.textContent = state.phase === "retreatRoll" ? "Retreat" : state.hasRolled ? "Rolled" : "Roll";
+  const showCenterRoll = canControl && ["battleRoll", "retreatRoll"].includes(state.phase);
+  const noAttacksRemain = state.phase === "attack" && !state.pendingAttack && !state.pendingRoll && remainingAttackPairs().length === 0;
+  const showCenterEnd = canControl && (state.phase === "done" || noAttacksRemain);
+  elements.rollButton.hidden = showCenterRoll;
   elements.rollButton.disabled = !canControl || !["battleRoll", "retreatRoll"].includes(state.phase);
-  elements.centerRollButton.hidden = !canControl || !["battleRoll", "retreatRoll"].includes(state.phase);
-  elements.centerEndTurnButton.hidden = !canControl || state.phase !== "done";
+  elements.centerRollButton.hidden = !showCenterRoll;
+  elements.endTurnButton.hidden = showCenterEnd;
+  elements.centerEndTurnButton.hidden = !showCenterEnd;
+  elements.centerEndTurnButton.textContent = noAttacksRemain ? "No Attacks · Continue" : "End Turn";
   elements.centerEndTurnButton.style.setProperty("--team-color", teams[state.activeTeam]?.color || teams.red.color);
   elements.centerDiceIcon.textContent = state.dice || "D6";
   elements.centerDiceLabel.textContent = state.phase === "retreatRoll" ? "Roll Retreat" : "Roll Movement";
@@ -377,10 +485,10 @@ function renderSetupPanel() {
   }
   if (state.phase === "walls") {
     const team = state.wallOwnerTurn;
-    const total = wallsPerPlayer();
+    const total = wallTarget(team);
     const batchNumber = (state.wallCounts[team] % WALLS_PER_SETUP_TURN) + 1;
     elements.setupTitle.textContent = "Defensive Walls";
-    elements.setupBadge.textContent = `${state.walls.length} / ${TOTAL_WALLS}`;
+    elements.setupBadge.textContent = `${state.walls.length} / ${state.wallLimit}`;
     elements.setupPanel.innerHTML = `
       <div class="setup-card team-accent" style="--team-color:${teams[team].color}">
         <h3>${displayName(team)}</h3>
@@ -502,7 +610,8 @@ function confirmDraft() {
   if (!["hero", "armor", "weapon"].every((kind) => state.draftSelections[team][kind].length === 2)) return;
   state.draftLocked[team] = true;
   logEvent(`${displayName(team)} locked two sets.`, teams[team].color);
-  if (!window.ArponOnline?.isOnline?.() && state.setupTeamIndex < activeTeams().length - 1) {
+  if (state.mode === "solo" && allDraftsLocked()) finalizeDraftsAndBeginWalls();
+  else if (!window.ArponOnline?.isOnline?.() && state.setupTeamIndex < activeTeams().length - 1) {
     state.setupTeamIndex += 1;
     const next = activeTeams()[state.setupTeamIndex];
     state.activeTeam = next;
@@ -512,6 +621,7 @@ function confirmDraft() {
 }
 
 function draftTeamForDevice() {
+  if (state.mode === "solo") return "red";
   if (window.ArponOnline?.isOnline?.()) return window.ArponOnline.getLocalTeam?.() || null;
   return activeTeams()[state.setupTeamIndex] || null;
 }
@@ -525,7 +635,8 @@ function finalizeDraftsAndBeginWalls() {
   state.loadouts = activeTeams().flatMap((team) =>
     previewDraftSets(team).map((set, index) => createLoadout(team, index + 1, set.hero, set.armor, set.weapon)),
   );
-  beginWallSetup();
+  if (state.mode === "solo") beginSoloArena();
+  else beginWallSetup();
 }
 
 function createLoadout(team, setNumber, heroCard, armorCard, weaponCard) {
@@ -557,7 +668,7 @@ function beginWallSetup() {
   state.wallOwnerTurn = winner;
   deviceState.selectedSetId = teamLoadouts(winner)[0]?.id || state.loadouts[0]?.id || null;
   logEvent(`Setup roll: ${setupRollSummary()}. ${displayName(winner)} starts.`, teams[winner].color);
-  logEvent(`Wall setup begins: ${TOTAL_WALLS} total walls. Each player places four at a time.`, "#30343b");
+  logEvent(`Wall setup begins: ${state.wallLimit} total walls. Each player places four at a time.`, "#30343b");
   showDiceResult("Setup Rolls", activeTeams().map((team) => `${teams[team].short} ${rolls[team]}`).join(" · "));
 }
 
@@ -857,8 +968,8 @@ function placeWallSegment(axis, x, y) {
   if (!isWallSegmentLegal(axis, x, y, team)) return;
   state.walls.push({ axis, x, y, owner: team });
   state.wallCounts[team] += 1;
-  logEvent(`${displayName(team)} placed wall ${state.wallCounts[team]} of ${wallsPerPlayer()}.`, teams[team].color);
-  if (activeTeams().every((id) => state.wallCounts[id] >= wallsPerPlayer())) {
+  logEvent(`${displayName(team)} placed wall ${state.wallCounts[team]} of ${wallTarget(team)}.`, teams[team].color);
+  if (state.walls.length >= state.wallLimit || activeTeams().every((id) => state.wallCounts[id] >= wallTarget(id))) {
     state.phase = "place";
     state.activeTeam = state.firstTeam;
     state.placeTeamIndex = 0;
@@ -872,14 +983,14 @@ function placeWallSegment(axis, x, y) {
 }
 
 function shouldPassWallTurn(team) {
-  return state.wallCounts[team] >= wallsPerPlayer() || state.wallCounts[team] % WALLS_PER_SETUP_TURN === 0;
+  return state.wallCounts[team] >= wallTarget(team) || state.wallCounts[team] % WALLS_PER_SETUP_TURN === 0;
 }
 
 function nextWallTeam(currentTeam) {
   let index = activeTeams().indexOf(currentTeam);
   for (let i = 0; i < activeTeams().length; i += 1) {
     index = (index + 1) % activeTeams().length;
-    if (state.wallCounts[activeTeams()[index]] < wallsPerPlayer()) return activeTeams()[index];
+    if (state.wallCounts[activeTeams()[index]] < wallTarget(activeTeams()[index])) return activeTeams()[index];
   }
   return currentTeam;
 }
@@ -897,13 +1008,13 @@ function placeHero(x, y) {
     state.placeSetIndex = 0;
     state.placeTeamIndex += 1;
   }
-  if (state.placeTeamIndex >= activeTeams().length) {
+  if (state.loadouts.every((item) => item.placed)) {
     state.phase = "battleRoll";
     state.activeTeam = state.firstTeam;
     state.turnNumber = 1;
     deviceState.selectedSetId = teamLoadouts(state.firstTeam)[0].id;
     logEvent(`Battle begins. ${displayName(state.firstTeam)} rolls first.`, teams[state.firstTeam].color);
-    showPass(state.firstTeam, "The battle begins. Roll once, then split movement between your Heroes.");
+    if (state.mode !== "solo") showPass(state.firstTeam, "The battle begins. Roll once, then split movement between your Heroes.");
   }
   render();
 }
@@ -998,7 +1109,9 @@ function attackLoadout(attacker, target) {
   if (!canLocalControlTeam(attacker.team)) return;
   if (!canAttack(attacker, target) || state.pendingAttack) return;
   state.pendingAttack = { attackerId: attacker.id, targetId: target.id };
-  const attackRule = attacker.weapon.effects.rollBonus || attacker.weapon.effects.rangeRollBonus;
+  const normalRange = Math.max(0, attacker.weapon.effects.range - (target.hero.effects.enemyRangeReduce || 0));
+  const needsRangeRoll = Boolean(attacker.weapon.effects.rangeRollBonus) && lineDistance(attacker, target) > normalRange;
+  const attackRule = attacker.weapon.effects.rollBonus || (needsRangeRoll ? attacker.weapon.effects.rangeRollBonus : null);
   if (attackRule) {
     requestAbilityRoll(
       attacker.team,
@@ -1593,7 +1706,7 @@ function advanceToNextTurn() {
   state.pendingAttack = null;
   deviceState.selectedSetId = teamLoadouts(state.activeTeam).find((loadout) => !loadout.ko)?.id || null;
   logEvent(`${displayName(state.activeTeam)} takes the turn.`, teams[state.activeTeam].color);
-  showPass(state.activeTeam, "Roll once, then split movement between your Heroes.");
+  if (state.mode !== "solo") showPass(state.activeTeam, "Roll once, then split movement between your Heroes.");
   render();
 }
 
@@ -1621,6 +1734,7 @@ function finishGame(winners, reason) {
   hideAttackReceipt();
   renderVictory();
   logEvent(`${elements.victoryTitle.textContent} ${reason}.`, winners.length === 1 ? teams[winners[0]].color : "#e7c64a");
+  window.ArponOnline?.onGameComplete?.({ matchId: state.matchId, mode: state.mode, ranked: state.ranked, winners });
   render();
 }
 
@@ -1660,7 +1774,7 @@ function nextLivingTeam(currentTeam) {
 }
 
 function showPass(team, message) {
-  if (window.ArponOnline?.isOnline?.()) {
+  if (window.ArponOnline?.isOnline?.() || state.mode === "solo") {
     elements.passModal.hidden = true;
     return;
   }
@@ -1757,7 +1871,92 @@ function displayName(team) {
 }
 
 function canLocalControlTeam(team) {
+  if (state.mode === "solo" && state.robotTeams.includes(team)) return deviceState.robotActing;
   return window.ArponOnline?.canControlTeam?.(team) ?? true;
+}
+
+function scheduleRobotAction() {
+  if (state.mode !== "solo" || state.phase === "complete" || deviceState.robotActing || deviceState.robotTimer) return;
+  const pendingRobot = state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team);
+  const activeRobot = state.robotTeams.includes(state.activeTeam) && !["lobby", "draft", "walls", "place"].includes(state.phase);
+  if (!pendingRobot && !activeRobot) return;
+  deviceState.robotTimer = setTimeout(() => {
+    deviceState.robotTimer = null;
+    runRobotAction();
+  }, 2700);
+}
+
+function runRobotAction() {
+  if (state.mode !== "solo") return;
+  deviceState.robotActing = true;
+  try {
+    if (state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team)) {
+      rollPendingAbility();
+      return;
+    }
+    if (!state.robotTeams.includes(state.activeTeam)) return;
+    if (["battleRoll", "retreatRoll"].includes(state.phase)) {
+      rollForPhase();
+      return;
+    }
+    if (state.phase === "move") {
+      robotMove();
+      return;
+    }
+    if (state.phase === "attack") {
+      const choices = remainingAttackPairs().sort((a, b) => a.target.currentHp - b.target.currentHp);
+      if (choices.length) attackLoadout(choices[0].attacker, choices[0].target);
+      else endTurn();
+      return;
+    }
+    if (state.phase === "retreat") {
+      robotRetreat();
+      return;
+    }
+    if (state.phase === "done") endTurn();
+  } finally {
+    deviceState.robotActing = false;
+    scheduleRobotAction();
+  }
+}
+
+function robotMove() {
+  const enemies = state.loadouts.filter((item) => item.placed && !item.ko && item.team !== state.activeTeam);
+  const options = teamLoadouts(state.activeTeam)
+    .filter((loadout) => !loadout.ko)
+    .flatMap((loadout) => {
+      const bonus = state.moveBonusUsed.includes(loadout.id) ? 0 : (loadout.hero.effects.moveBonus || 0);
+      return getReachableCells(loadout.x, loadout.y, state.movementLeft + bonus, loadout.id, true).map((move) => {
+        const old = { x: loadout.x, y: loadout.y };
+        Object.assign(loadout, move);
+        const attacks = getAttackTargets(loadout, true).filter((target) => target.team !== loadout.team).length;
+        Object.assign(loadout, old);
+        const nearest = Math.min(...enemies.map((enemy) => lineDistance(move, enemy)));
+        return { loadout, move, attacks, nearest };
+      });
+    });
+  if (!options.length) {
+    state.movementLeft = 0;
+    state.phase = "attack";
+    render();
+    return;
+  }
+  options.sort((a, b) => b.attacks - a.attacks || a.nearest - b.nearest || b.move.steps - a.move.steps);
+  moveLoadoutTo(options[0].loadout, options[0].move);
+}
+
+function robotRetreat() {
+  const retreating = getLoadout(state.retreatHeroId);
+  if (!retreating) return finishCurrentRetreat();
+  const enemies = state.loadouts.filter((item) => item.placed && !item.ko && item.team !== retreating.team);
+  const options = getReachableCells(retreating.x, retreating.y, state.retreatSteps, retreating.id, true);
+  options.sort((a, b) => {
+    const aDistance = Math.min(...enemies.map((enemy) => lineDistance(a, enemy)));
+    const bDistance = Math.min(...enemies.map((enemy) => lineDistance(b, enemy)));
+    return bDistance - aDistance;
+  });
+  if (options.length) moveLoadoutTo(retreating, options[0]);
+  else endTurn();
 }
 
 function teamsForPlayerCount(count) {
@@ -1772,6 +1971,7 @@ function exportGameState() {
 
 function replaceGameState(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return;
+  const wasComplete = state.phase === "complete";
   const selectedSetId = deviceState.selectedSetId;
   Object.assign(state, snapshot, {
     receiptTimer: null,
@@ -1785,10 +1985,13 @@ function replaceGameState(snapshot) {
   }));
   elements.passModal.hidden = true;
   restoreAttackReceipt();
+  if (!wasComplete && state.phase === "complete" && state.victory) {
+    window.ArponOnline?.onGameComplete?.({ matchId: state.matchId, mode: state.mode, ranked: state.ranked, winners: state.victory.winners });
+  }
   render();
 }
 
-function startOnlineGame(players) {
+function startOnlineGame(players, turnLimit = null, wallLimit = DEFAULT_WALL_LIMIT, ranked = false, matchId = null) {
   const playerTeams = teamsForPlayerCount(players.length);
   state.playerCount = players.length;
   state.playerTeams = playerTeams;
@@ -1796,7 +1999,12 @@ function startOnlineGame(players) {
   players.forEach((player, index) => {
     state.playerNames[playerTeams[index]] = player.display_name || `Player ${index + 1}`;
   });
-  state.turnLimit = defaultTurnLimit(players.length);
+  state.mode = "online";
+  state.matchId = matchId || crypto.randomUUID();
+  state.ranked = Boolean(ranked);
+  state.robotTeams = [];
+  state.turnLimit = Number(turnLimit) || defaultTurnLimit(players.length);
+  state.wallLimit = Number(wallLimit) || DEFAULT_WALL_LIMIT;
   deviceState.turnLimitCustomized = false;
   startGame();
 }
@@ -1856,6 +2064,28 @@ elements.turnLimitInput.addEventListener("input", () => {
   state.turnLimit = Number(elements.turnLimitInput.value);
   elements.turnLimitValue.textContent = `${state.turnLimit} turns`;
 });
+elements.wallLimitInput.addEventListener("input", () => {
+  state.wallLimit = Number(elements.wallLimitInput.value);
+  elements.wallLimitValue.textContent = `${state.wallLimit} walls`;
+});
+document.querySelectorAll(".solo-count-button").forEach((button) => button.addEventListener("click", () => {
+  document.querySelectorAll(".solo-count-button").forEach((item) => item.classList.toggle("active", item === button));
+  const count = Number(button.dataset.soloEnemies);
+  if (!deviceState.turnLimitCustomized) {
+    elements.soloTurnLimitInput.value = defaultTurnLimit(count + 1);
+    elements.soloTurnLimitValue.textContent = `${elements.soloTurnLimitInput.value} turns`;
+  }
+}));
+elements.soloTurnLimitInput.addEventListener("input", () => {
+  elements.soloTurnLimitValue.textContent = `${elements.soloTurnLimitInput.value} turns`;
+});
+elements.soloWallLimitInput.addEventListener("input", () => {
+  elements.soloWallLimitValue.textContent = `${elements.soloWallLimitInput.value} walls`;
+});
+elements.startSoloButton.addEventListener("click", () => {
+  const enemyCount = Number(document.querySelector(".solo-count-button.active")?.dataset.soloEnemies || 1);
+  startSoloGame(enemyCount, Number(elements.soloWallLimitInput.value), Number(elements.soloTurnLimitInput.value));
+});
 elements.homeButton.addEventListener("click", resetToLobby);
 elements.passButton.addEventListener("click", () => {
   elements.passModal.hidden = true;
@@ -1890,15 +2120,7 @@ document.addEventListener("pointerdown", (event) => {
   setTimeout(() => button.classList.remove("button-pulse"), 260);
 });
 document.querySelectorAll(".count-button").forEach((button) => button.addEventListener("click", () => setPlayerCount(Number(button.dataset.count))));
-elements.abilityRollButton.addEventListener("click", () => {
-  const pending = state.pendingRoll;
-  if (!pending || !canLocalControlTeam(pending.team)) return;
-  const rollLabel = pending.title;
-  const rollTeam = pending.team;
-  state.pendingRoll = null;
-  const result = rollDie();
-  showDiceResult(rollLabel, result, () => resolvePendingRoll(pending, result), rollTeam);
-});
+elements.abilityRollButton.addEventListener("click", rollPendingAbility);
 elements.keepMovementButton.addEventListener("click", () => resolveMoveSpendChoice(false));
 elements.finishMovementButton.addEventListener("click", () => resolveMoveSpendChoice(true));
 elements.cancelStayButton.addEventListener("click", () => resolveStayConfirmation(false));
@@ -1917,7 +2139,7 @@ window.ArponGame = {
   reconcileOnlineState,
   startOnlineGame,
   cards,
-  actions: { startGame, rollForPhase, endTurn, placeWallSegment, placeHero, attackLoadout, moveLoadoutTo },
+  actions: { startGame, startSoloGame, rollForPhase, endTurn, placeWallSegment, placeHero, attackLoadout, moveLoadoutTo },
   inspect: { getReachableCells },
 };
 

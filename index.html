@@ -103,6 +103,11 @@
               <strong>Pass &amp; Play</strong>
               <small>Play together on this screen</small>
             </button>
+            <button class="mode-card solo" id="openSoloButton" type="button">
+              <span class="mode-icon">CPU</span>
+              <strong>Solo Battle</strong>
+              <small>Fight one to three robot squads</small>
+            </button>
             <button class="mode-card private" id="openPrivateButton" type="button">
               <span class="mode-icon">#</span>
               <strong>Private Room</strong>
@@ -119,6 +124,11 @@
             <span>Your online name</span>
             <input id="onlinePlayerName" maxlength="22" placeholder="Player name" value="Player" />
           </label>
+          <div class="account-actions">
+            <button class="back-action" id="accountButton" type="button">Account &amp; Record</button>
+            <span id="accountSummary">Playing as guest</span>
+            <button class="back-action" id="leaderboardButton" type="button">Leaderboard</button>
+          </div>
           <p class="home-note">Online games begin with two players. Matchmaking waits up to two minutes for players three and four.</p>
         </section>
 
@@ -141,14 +151,61 @@
             <input id="turnLimitInput" type="range" min="8" max="80" step="4" value="40" />
             <small>At the limit, the squad with the most combined HP wins.</small>
           </label>
+          <label class="turn-limit-control" for="wallLimitInput">
+            <span>Walls</span>
+            <strong id="wallLimitValue">24 walls</strong>
+            <input id="wallLimitInput" type="range" min="0" max="36" step="4" value="24" />
+            <small>Players take turns placing four walls at a time.</small>
+          </label>
           <div class="lobby-players" id="lobbyPlayers"></div>
           <button class="primary-action large" id="startGameButton" type="button">Deal Set A Cards</button>
+        </section>
+
+        <section class="home-panel setup-mode-panel" id="soloSetupPanel" hidden>
+          <div class="home-panel-title">
+            <button class="back-action" data-home-back type="button">Back</button>
+            <div><span>Solo Battle</span><strong>Robot Arena Setup</strong></div>
+          </div>
+          <div class="player-count">
+            <span>Robot enemies</span>
+            <div class="segmented wide">
+              <button class="solo-count-button active" data-solo-enemies="1" type="button">1</button>
+              <button class="solo-count-button" data-solo-enemies="2" type="button">2</button>
+              <button class="solo-count-button" data-solo-enemies="3" type="button">3</button>
+            </div>
+          </div>
+          <label class="turn-limit-control" for="soloTurnLimitInput">
+            <span>Battle length</span>
+            <strong id="soloTurnLimitValue">24 turns</strong>
+            <input id="soloTurnLimitInput" type="range" min="8" max="80" step="4" value="24" />
+            <small>Highest combined HP wins if time expires.</small>
+          </label>
+          <label class="turn-limit-control" for="soloWallLimitInput">
+            <span>Random walls</span>
+            <strong id="soloWallLimitValue">24 walls</strong>
+            <input id="soloWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
+            <small>The arena generates these walls before Hero placement.</small>
+          </label>
+          <button class="primary-action large" id="startSoloButton" type="button">Fight the Robots</button>
         </section>
 
         <section class="home-panel setup-mode-panel" id="privateSetupPanel" hidden>
           <div class="home-panel-title">
             <button class="back-action" data-home-back type="button">Back</button>
             <div><span>Online Battle</span><strong>Private Room</strong></div>
+          </div>
+          <div class="private-settings">
+            <label class="turn-limit-control" for="privateTurnLimitInput">
+              <span>Battle length</span>
+              <strong id="privateTurnLimitValue">40 turns</strong>
+              <input id="privateTurnLimitInput" type="range" min="8" max="80" step="4" value="40" />
+            </label>
+            <label class="turn-limit-control" for="privateWallLimitInput">
+              <span>Walls</span>
+              <strong id="privateWallLimitValue">24 walls</strong>
+              <input id="privateWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
+            </label>
+            <label class="ranked-toggle"><input id="privateRankedInput" type="checkbox" /><span>Count this game toward account records and leaderboard</span></label>
           </div>
           <div class="private-actions">
             <button class="online-choice" id="createRoomButton" type="button">
@@ -157,7 +214,7 @@
             <div class="join-room">
               <label class="online-field">
                 <span>Room code</span>
-                <input id="roomCodeInput" maxlength="6" placeholder="ABC123" autocomplete="off" />
+                <input id="roomCodeInput" maxlength="3" placeholder="ABC" autocomplete="off" />
               </label>
               <button class="primary-action" id="joinRoomButton" type="button">Join Room</button>
             </div>
@@ -171,7 +228,7 @@
       <section class="online-room-modal">
         <img src="./assets/logo.png" alt="Arpon Heroes" />
         <p class="eyebrow" id="onlineRoomEyebrow">Private Room</p>
-        <h2 id="onlineRoomTitle">Room ABC123</h2>
+        <h2 id="onlineRoomTitle">Room ABC</h2>
         <p id="onlineRoomStatus">Waiting for players...</p>
         <div class="online-countdown" id="onlineCountdown" hidden><span>Battle begins in</span><strong id="onlineCountdownValue">2:00</strong></div>
         <div class="online-player-list" id="onlinePlayerList"></div>
@@ -201,7 +258,7 @@
         </div>
         <div class="rules-grid">
           <article><strong>1. Make Sets</strong><p>Each player receives three random cards of each type. Choose two Heroes, two Armors, and two Weapons, then arrange them into two sets. Matching a Hero with its Armor adds 100 HP; matching its Weapon adds 100 DP.</p></article>
-          <article><strong>2. Place Walls</strong><p>Players place four walls before passing setup to the next player, until 36 walls are on the field. Walls may be in your base, neutral territory, or an unoccupied base, but never in an occupied enemy base.</p></article>
+          <article><strong>2. Place Walls</strong><p>Players place four walls before passing setup to the next player, until the chosen wall total is on the field. Standard games use 24 walls. Walls may be in your base, neutral territory, or an unoccupied base, but never in an occupied enemy base.</p></article>
           <article><strong>3. Move</strong><p>Roll once and spend every movement step before attacking. You may take a legal detour or return to the same square to use the full roll, and may split steps between either Hero. A diagonal may round one wall corner, but cannot pass through a corner closed by two walls.</p></article>
           <article><strong>4. Attack</strong><p>After movement, every Hero may attack every reachable enemy once. Each enemy resolves separately. Heroes shield Heroes behind them; walls block attacks unless an ability says otherwise.</p></article>
           <article><strong>5. Retreat</strong><p>After attacks, each Hero that attacked may roll once and retreat. Retreat bonuses and penalties apply. You may also stay put.</p></article>
@@ -280,6 +337,36 @@
         <h2 id="victoryTitle">Red Wins</h2>
         <div class="victory-scores" id="victoryScores"></div>
         <button class="primary-action large" id="homeButton" type="button">Back Home</button>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="accountModal" hidden>
+      <section class="modal account-modal">
+        <div class="modal-title-row">
+          <div><p class="eyebrow">Persistent player record</p><h2>Arpon Account</h2></div>
+          <button class="tool-button" id="closeAccountButton" type="button">Close</button>
+        </div>
+        <div class="account-form" id="accountForm">
+          <label class="online-field"><span>Case-sensitive username</span><input id="accountUsername" maxlength="18" autocomplete="username" /></label>
+          <label class="online-field"><span>Password</span><input id="accountPassword" type="password" autocomplete="current-password" /></label>
+          <div class="account-form-actions">
+            <button class="primary-action" id="accountLoginButton" type="button">Sign In</button>
+            <button class="secondary-action" id="accountCreateButton" type="button">Create Account</button>
+          </div>
+        </div>
+        <div class="account-record" id="accountRecord"></div>
+        <p class="online-message" id="accountMessage">Sign in to save ranked and robot battle records.</p>
+        <button class="back-action" id="accountLogoutButton" type="button" hidden>Sign Out</button>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="leaderboardModal" hidden>
+      <section class="modal leaderboard-modal">
+        <div class="modal-title-row">
+          <div><p class="eyebrow">Ranked battles</p><h2>Leaderboard</h2></div>
+          <button class="tool-button" id="closeLeaderboardButton" type="button">Close</button>
+        </div>
+        <div class="leaderboard-list" id="leaderboardList">Loading leaderboard...</div>
       </section>
     </div>
 

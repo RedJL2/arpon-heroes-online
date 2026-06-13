@@ -5,10 +5,14 @@ const MATCHMAKING_COUNT_INTERVAL = 5000;
 
 const onlineElements = Object.fromEntries(
   [
-    "lobbyModal", "homeMenuPanel", "localSetupPanel", "privateSetupPanel", "openLocalButton", "openPrivateButton", "findMatchButton",
+    "lobbyModal", "homeMenuPanel", "localSetupPanel", "soloSetupPanel", "privateSetupPanel", "openLocalButton", "openSoloButton", "openPrivateButton", "findMatchButton",
     "homeRulesButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
     "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
+    "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput",
+    "accountButton", "accountSummary", "accountModal", "closeAccountButton", "accountForm", "accountUsername", "accountPassword", "accountLoginButton",
+    "accountCreateButton", "accountRecord", "accountMessage", "accountLogoutButton", "leaderboardButton", "leaderboardModal",
+    "closeLeaderboardButton", "leaderboardList",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -33,10 +37,15 @@ const session = {
 sessionStorage.setItem("arpon-player-token", session.token);
 let matchmakingCountTimer = null;
 let matchmakingCountBusy = false;
+const account = {
+  token: localStorage.getItem("arpon-account-session") || null,
+  profile: null,
+  recordedResults: new Set(),
+};
 
 function playerName() {
   const entered = onlineElements.onlinePlayerName.value.trim();
-  return entered || localStorage.getItem("arpon-player-name") || "Player";
+  return entered || account.profile?.username || localStorage.getItem("arpon-player-name") || "Player";
 }
 
 function rememberPlayerName() {
@@ -99,6 +108,7 @@ async function refreshMatchmakingCount() {
 function showHomePanel(panel) {
   onlineElements.homeMenuPanel.hidden = panel !== "menu";
   onlineElements.localSetupPanel.hidden = panel !== "local";
+  onlineElements.soloSetupPanel.hidden = panel !== "solo";
   onlineElements.privateSetupPanel.hidden = panel !== "private";
   onlineElements.lobbyModal.hidden = false;
   if (panel === "menu") refreshMatchmakingCount();
@@ -230,7 +240,9 @@ async function createPrivateRoom() {
     const room = await rpc("create_arpon_private_room", {
       p_player_token: session.token,
       p_display_name: playerName(),
-      p_turn_limit: Number(onlineElements.turnLimitInput?.value || 40),
+      p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 40),
+      p_wall_limit: Number(onlineElements.privateWallLimitInput?.value || 24),
+      p_ranked: Boolean(onlineElements.privateRankedInput?.checked),
     });
     showPrivateMessage("Room created.");
     await enterRoom(room);
@@ -241,8 +253,8 @@ async function createPrivateRoom() {
 
 async function joinPrivateRoom() {
   const code = onlineElements.roomCodeInput.value.trim().toUpperCase();
-  if (code.length !== 6) {
-    showPrivateMessage("Enter the six-character room code.", true);
+  if (code.length !== 3) {
+    showPrivateMessage("Enter the three-letter room code.", true);
     return;
   }
   rememberPlayerName();
@@ -345,7 +357,7 @@ async function handleRoomState(room) {
   if (room.game.is_host) {
     onlineElements.lobbyModal.hidden = true;
     onlineElements.onlineRoomModal.hidden = true;
-    window.ArponGame.startOnlineGame(room.players, room.game.turn_limit);
+    window.ArponGame.startOnlineGame(room.players, room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id);
   }
 }
 
@@ -415,9 +427,117 @@ async function disconnectOnline() {
   }
 }
 
+function setAccountMessage(message, error = false) {
+  onlineElements.accountMessage.textContent = message;
+  onlineElements.accountMessage.classList.toggle("error", error);
+}
+
+function renderAccount() {
+  const profile = account.profile;
+  onlineElements.accountSummary.textContent = profile
+    ? `${profile.username} · ${profile.ranked_wins} ranked wins · ${profile.solo_wins} robot wins`
+    : "Playing as guest";
+  onlineElements.accountForm.hidden = Boolean(profile);
+  onlineElements.accountLogoutButton.hidden = !profile;
+  onlineElements.accountRecord.innerHTML = profile ? `
+    <div><span>Ranked</span><strong>${profile.ranked_wins} W · ${profile.ranked_losses} L</strong></div>
+    <div><span>Robot</span><strong>${profile.solo_wins} W · ${profile.solo_losses} L</strong></div>
+    <div><span>Ranked win rate</span><strong>${profile.ranked_games ? Math.round((profile.ranked_wins / profile.ranked_games) * 100) : 0}%</strong></div>
+  ` : "";
+  if (profile) {
+    onlineElements.onlinePlayerName.value = profile.username;
+    setAccountMessage("Your record is saved after ranked and robot battles.");
+  }
+}
+
+async function refreshAccount() {
+  if (!account.token) {
+    account.profile = null;
+    renderAccount();
+    return;
+  }
+  try {
+    account.profile = await rpc("get_arpon_account_record", { p_session_token: account.token });
+  } catch {
+    account.token = null;
+    account.profile = null;
+    localStorage.removeItem("arpon-account-session");
+  }
+  renderAccount();
+}
+
+async function submitAccount(create) {
+  const username = onlineElements.accountUsername.value;
+  const password = onlineElements.accountPassword.value;
+  setAccountMessage(create ? "Creating account..." : "Signing in...");
+  try {
+    const result = await rpc(create ? "create_arpon_account" : "login_arpon_account", {
+      p_username: username,
+      p_password: password,
+    });
+    account.token = result.session_token;
+    account.profile = result.profile;
+    localStorage.setItem("arpon-account-session", account.token);
+    onlineElements.accountPassword.value = "";
+    renderAccount();
+  } catch (error) {
+    setAccountMessage(error.message, true);
+  }
+}
+
+async function logoutAccount() {
+  if (account.token) rpc("logout_arpon_account", { p_session_token: account.token }).catch(() => {});
+  account.token = null;
+  account.profile = null;
+  localStorage.removeItem("arpon-account-session");
+  renderAccount();
+}
+
+async function showLeaderboard() {
+  onlineElements.leaderboardModal.hidden = false;
+  onlineElements.leaderboardList.textContent = "Loading leaderboard...";
+  try {
+    const rows = await rpc("get_arpon_leaderboard");
+    onlineElements.leaderboardList.innerHTML = rows.length ? rows.map((row, index) => `
+      <div class="leaderboard-row">
+        <strong>${index + 1}</strong><span>${escapeOnline(row.username)}</span>
+        <b>${row.ranked_wins} wins</b><em>${row.win_rate}%</em>
+      </div>`).join("") : "<p>No ranked results yet. The first champion spot is open.</p>";
+  } catch (error) {
+    onlineElements.leaderboardList.textContent = error.message;
+  }
+}
+
+async function recordGameComplete(result) {
+  if (!account.token || account.recordedResults.has(result.matchId)) return;
+  account.recordedResults.add(result.matchId);
+  try {
+    if (result.mode === "solo") {
+      await rpc("record_arpon_solo_result", {
+        p_session_token: account.token,
+        p_result_key: result.matchId,
+        p_won: result.winners.includes("red"),
+      });
+    } else if (session.active && result.ranked) {
+      await rpc("record_arpon_online_result", {
+        p_game_id: session.gameId,
+        p_player_token: session.token,
+        p_session_token: account.token,
+      });
+    } else return;
+    await refreshAccount();
+  } catch {
+    account.recordedResults.delete(result.matchId);
+  }
+}
+
 onlineElements.openLocalButton.addEventListener("click", async () => {
   await disconnectOnline();
   showHomePanel("local");
+});
+onlineElements.openSoloButton.addEventListener("click", async () => {
+  await disconnectOnline();
+  showHomePanel("solo");
 });
 onlineElements.openPrivateButton.addEventListener("click", () => showHomePanel("private"));
 onlineElements.findMatchButton.addEventListener("click", joinMatchmaking);
@@ -428,13 +548,33 @@ document.querySelectorAll("[data-home-back]").forEach((button) => button.addEven
 onlineElements.createRoomButton.addEventListener("click", createPrivateRoom);
 onlineElements.joinRoomButton.addEventListener("click", joinPrivateRoom);
 onlineElements.roomCodeInput.addEventListener("input", () => {
-  onlineElements.roomCodeInput.value = onlineElements.roomCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  onlineElements.roomCodeInput.value = onlineElements.roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
+});
+onlineElements.privateTurnLimitInput.addEventListener("input", () => {
+  onlineElements.privateTurnLimitValue.textContent = `${onlineElements.privateTurnLimitInput.value} turns`;
+});
+onlineElements.privateWallLimitInput.addEventListener("input", () => {
+  onlineElements.privateWallLimitValue.textContent = `${onlineElements.privateWallLimitInput.value} walls`;
 });
 onlineElements.onlinePlayerName.addEventListener("change", rememberPlayerName);
 onlineElements.startOnlineRoomButton.addEventListener("click", startPrivateRoom);
 onlineElements.cancelOnlineButton.addEventListener("click", async () => {
   await disconnectOnline();
   showHomePanel("menu");
+});
+onlineElements.accountButton.addEventListener("click", () => {
+  onlineElements.accountModal.hidden = false;
+  renderAccount();
+});
+onlineElements.closeAccountButton.addEventListener("click", () => {
+  onlineElements.accountModal.hidden = true;
+});
+onlineElements.accountLoginButton.addEventListener("click", () => submitAccount(false));
+onlineElements.accountCreateButton.addEventListener("click", () => submitAccount(true));
+onlineElements.accountLogoutButton.addEventListener("click", logoutAccount);
+onlineElements.leaderboardButton.addEventListener("click", showLeaderboard);
+onlineElements.closeLeaderboardButton.addEventListener("click", () => {
+  onlineElements.leaderboardModal.hidden = true;
 });
 
 window.ArponOnline = {
@@ -443,6 +583,7 @@ window.ArponOnline = {
   isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
   onGameRendered: schedulePush,
+  onGameComplete: recordGameComplete,
   onResetToLobby: () => {
     disconnectOnline();
     showHomePanel("menu");
@@ -450,6 +591,7 @@ window.ArponOnline = {
 };
 
 onlineElements.onlinePlayerName.value = localStorage.getItem("arpon-player-name") || "Player";
+refreshAccount();
 showHomePanel("menu");
 clearInterval(matchmakingCountTimer);
 matchmakingCountTimer = setInterval(refreshMatchmakingCount, MATCHMAKING_COUNT_INTERVAL);

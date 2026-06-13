@@ -1417,7 +1417,7 @@ body.draft-mode .hero-list {
 
 .mode-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1443,6 +1443,10 @@ body.draft-mode .hero-list {
 
 .mode-card.local {
   border-bottom-color: #159b55;
+}
+
+.mode-card.solo {
+  border-bottom-color: #d92d2d;
 }
 
 .mode-card.private {
@@ -1507,6 +1511,44 @@ body.draft-mode .hero-list {
   font-size: 0.68rem;
   font-weight: 800;
   text-align: center;
+}
+
+.account-actions {
+  display: flex;
+  margin-top: 14px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.account-actions span {
+  color: #555c63;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.private-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.ranked-toggle {
+  display: flex;
+  padding: 12px;
+  align-items: center;
+  grid-column: 1 / -1;
+  border: 3px solid #292c31;
+  background: rgba(255, 255, 255, 0.78);
+  gap: 9px;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.ranked-toggle input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--red);
 }
 
 .setup-mode-panel {
@@ -1759,6 +1801,83 @@ body.draft-mode .hero-list {
 
 .count-button {
   min-width: 50px;
+}
+
+.solo-count-button {
+  min-width: 50px;
+  min-height: 38px;
+  border: 2px solid #292c31;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.solo-count-button.active {
+  background: var(--red);
+  color: #fff;
+}
+
+.account-form {
+  display: grid;
+  gap: 12px;
+}
+
+.account-form-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.account-record {
+  display: grid;
+  margin: 14px 0;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.account-record div {
+  display: grid;
+  padding: 12px;
+  border: 3px solid #292c31;
+  background: #fff;
+  gap: 4px;
+}
+
+.account-record span {
+  color: #626970;
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.account-record strong {
+  font-size: 0.9rem;
+}
+
+.leaderboard-list {
+  display: grid;
+  gap: 7px;
+}
+
+.leaderboard-row {
+  display: grid;
+  padding: 10px;
+  align-items: center;
+  grid-template-columns: 38px 1fr auto 60px;
+  border: 3px solid #292c31;
+  background: #fff;
+  gap: 10px;
+}
+
+.leaderboard-row > strong {
+  color: var(--red);
+  font-size: 1.1rem;
+}
+
+.leaderboard-row b,
+.leaderboard-row em {
+  font-size: 0.7rem;
+  font-style: normal;
 }
 
 .turn-limit-control {
@@ -2335,8 +2454,13 @@ body.draft-mode .hero-list {
   }
 
   .mode-grid,
-  .private-actions {
+  .private-actions,
+  .private-settings {
     grid-template-columns: 1fr;
+  }
+
+  .ranked-toggle {
+    grid-column: auto;
   }
 
   .mode-card {
@@ -2531,6 +2655,16 @@ body.draft-mode .hero-list {
 
   .home-panel {
     padding: 14px;
+  }
+
+  .account-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-record,
+  .account-form-actions {
+    grid-template-columns: 1fr;
   }
 
   .mode-card {
