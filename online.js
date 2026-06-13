@@ -2,6 +2,7 @@ const SUPABASE_URL = "https://gfktqgtizctecrypnfan.supabase.co";
 const SUPABASE_KEY = "sb_publishable_l3b8UIl2LwcPf9w2NUchgg_FMGIoa4J";
 const POLL_INTERVAL = 1400;
 const MATCHMAKING_COUNT_INTERVAL = 5000;
+const PRESENCE_INTERVAL = 20000;
 
 const onlineElements = Object.fromEntries(
   [
@@ -12,7 +13,11 @@ const onlineElements = Object.fromEntries(
     "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput",
     "accountButton", "accountSummary", "accountModal", "closeAccountButton", "accountForm", "accountUsername", "accountPassword", "accountLoginButton",
     "accountCreateButton", "accountRecord", "accountMessage", "accountLogoutButton", "leaderboardButton", "leaderboardModal",
-    "closeLeaderboardButton", "leaderboardList",
+    "closeLeaderboardButton", "leaderboardList", "leaderboardPreviousButton", "leaderboardNextButton", "leaderboardPageLabel",
+    "friendsButton", "friendsModal", "closeFriendsButton", "friendUsername", "friendMessage", "sendFriendRequestButton", "sendFriendMessageButton",
+    "sendBattleInviteButton", "friendsMessage", "friendsList", "friendRequestsList", "friendMessagesList",
+    "adminButton", "adminModal", "closeAdminButton", "adminStats", "adminMessage", "adminAccountList",
+    "passwordChange", "currentPassword", "newPassword", "changePasswordButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -42,6 +47,9 @@ const account = {
   profile: null,
   recordedResults: new Set(),
 };
+const leaderboard = { metric: "ranked_wins", page: 0, rows: [] };
+let presenceTimer = null;
+let socialTimer = null;
 
 function playerName() {
   const entered = onlineElements.onlinePlayerName.value.trim();
@@ -228,6 +236,7 @@ async function enterRoom(room) {
   session.revision = Number(room.game.revision || 0);
   session.localTeam = assignLocalTeam(room);
   sessionStorage.setItem("arpon-online-room", JSON.stringify({ gameId: session.gameId }));
+  if (account.token) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   renderOnlineRoom(room);
   startPolling();
   await handleRoomState(room);
@@ -240,7 +249,7 @@ async function createPrivateRoom() {
     const room = await rpc("create_arpon_private_room", {
       p_player_token: session.token,
       p_display_name: playerName(),
-      p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 40),
+      p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.privateWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.privateRankedInput?.checked),
     });
@@ -357,7 +366,7 @@ async function handleRoomState(room) {
   if (room.game.is_host) {
     onlineElements.lobbyModal.hidden = true;
     onlineElements.onlineRoomModal.hidden = true;
-    window.ArponGame.startOnlineGame(room.players, room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id);
+    window.ArponGame.startOnlineGame(room.players, room.game.mode === "matchmaking" ? null : room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id);
   }
 }
 
@@ -439,6 +448,9 @@ function renderAccount() {
     : "Playing as guest";
   onlineElements.accountForm.hidden = Boolean(profile);
   onlineElements.accountLogoutButton.hidden = !profile;
+  onlineElements.passwordChange.hidden = !profile;
+  onlineElements.friendsButton.hidden = !profile;
+  onlineElements.adminButton.hidden = !profile?.is_admin;
   onlineElements.accountRecord.innerHTML = profile ? `
     <div><span>Ranked</span><strong>${profile.ranked_wins} W · ${profile.ranked_losses} L</strong></div>
     <div><span>Robot</span><strong>${profile.solo_wins} W · ${profile.solo_losses} L</strong></div>
@@ -458,6 +470,8 @@ async function refreshAccount() {
   }
   try {
     account.profile = await rpc("get_arpon_account_record", { p_session_token: account.token });
+    touchPresence();
+    if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   } catch {
     account.token = null;
     account.profile = null;
@@ -475,14 +489,38 @@ async function submitAccount(create) {
       p_username: username,
       p_password: password,
     });
+    if (result?.error) throw new Error(result.error);
     account.token = result.session_token;
     account.profile = result.profile;
     localStorage.setItem("arpon-account-session", account.token);
     onlineElements.accountPassword.value = "";
     renderAccount();
+    touchPresence();
+    if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   } catch (error) {
     setAccountMessage(error.message, true);
   }
+}
+
+async function changePassword() {
+  if (!account.token) return;
+  setAccountMessage("Updating password...");
+  try {
+    await rpc("change_arpon_password", {
+      p_session_token: account.token,
+      p_current_password: onlineElements.currentPassword.value,
+      p_new_password: onlineElements.newPassword.value,
+    });
+    onlineElements.currentPassword.value = "";
+    onlineElements.newPassword.value = "";
+    setAccountMessage("Password updated. Other signed-in devices were logged out.");
+  } catch (error) {
+    setAccountMessage(error.message, true);
+  }
+}
+
+function touchPresence() {
+  if (account.token) rpc("touch_arpon_presence", { p_session_token: account.token }).catch(() => {});
 }
 
 async function logoutAccount() {
@@ -493,19 +531,142 @@ async function logoutAccount() {
   renderAccount();
 }
 
-async function showLeaderboard() {
+async function showLeaderboard(resetPage = false) {
+  if (resetPage) leaderboard.page = 0;
   onlineElements.leaderboardModal.hidden = false;
   onlineElements.leaderboardList.textContent = "Loading leaderboard...";
   try {
-    const rows = await rpc("get_arpon_leaderboard");
+    const rows = await rpc("get_arpon_leaderboard_page", { p_metric: leaderboard.metric, p_page: leaderboard.page });
+    leaderboard.rows = rows;
+    onlineElements.leaderboardPageLabel.textContent = `Page ${leaderboard.page + 1}`;
+    onlineElements.leaderboardPreviousButton.disabled = leaderboard.page === 0;
+    onlineElements.leaderboardNextButton.disabled = rows.length < 20;
+    const value = (row) => leaderboard.metric === "ranked_wins" ? `${row.ranked_wins} ranked wins`
+      : leaderboard.metric === "ranked_rate" ? `${row.ranked_rate}% ranked`
+        : leaderboard.metric === "solo_wins" ? `${row.solo_wins} robot wins` : `${row.solo_rate}% robot`;
     onlineElements.leaderboardList.innerHTML = rows.length ? rows.map((row, index) => `
       <div class="leaderboard-row">
-        <strong>${index + 1}</strong><span>${escapeOnline(row.username)}</span>
-        <b>${row.ranked_wins} wins</b><em>${row.win_rate}%</em>
-      </div>`).join("") : "<p>No ranked results yet. The first champion spot is open.</p>";
+        <strong>${leaderboard.page * 20 + index + 1}</strong><span>${escapeOnline(row.username)}</span>
+        <b>${value(row)}</b><em>${row.ranked_wins + row.ranked_losses} ranked · ${row.solo_wins + row.solo_losses} robot</em>
+      </div>`).join("") : "<p>No results on this page yet.</p>";
   } catch (error) {
     onlineElements.leaderboardList.textContent = error.message;
   }
+}
+
+function setFriendsMessage(message, error = false) {
+  onlineElements.friendsMessage.textContent = message;
+  onlineElements.friendsMessage.classList.toggle("error", error);
+}
+
+async function refreshFriends() {
+  if (!account.token || onlineElements.friendsModal.hidden) return;
+  try {
+    const data = await rpc("get_arpon_social_dashboard", { p_session_token: account.token });
+    onlineElements.friendsList.innerHTML = data.friends.length ? data.friends.map((friend) => `
+      <button class="social-person ${friend.online ? "online" : ""}" data-social-username="${escapeOnline(friend.username)}" type="button">
+        <i></i><strong>${escapeOnline(friend.username)}</strong><span>${friend.online ? "Online" : "Offline"}</span>
+      </button>`).join("") : "<p>No friends yet.</p>";
+    onlineElements.friendRequestsList.innerHTML = [
+      ...data.requests.map((request) => `<article><strong>${escapeOnline(request.username)}</strong><span>Friend request</span><div><button data-accept-friend="${escapeOnline(request.username)}" type="button">Accept</button><button data-decline-friend="${escapeOnline(request.username)}" type="button">Decline</button></div></article>`),
+      ...data.invites.map((invite) => `<article class="battle-invite"><strong>${escapeOnline(invite.from)}</strong><span>Friendly battle invitation</span><button data-join-invite="${escapeOnline(invite.code)}" type="button">Join Battle</button></article>`),
+    ].join("") || "<p>No pending requests.</p>";
+    onlineElements.friendMessagesList.innerHTML = data.messages.length ? data.messages.map((message) => `
+      <article><strong>${escapeOnline(message.from)} → ${escapeOnline(message.to)}</strong><span>${new Date(message.sent_at).toLocaleString()}</span><p>${escapeOnline(message.body)}</p></article>`).join("") : "<p>No messages yet.</p>";
+    bindSocialActions();
+  } catch (error) {
+    setFriendsMessage(error.message, true);
+  }
+}
+
+function bindSocialActions() {
+  onlineElements.friendsModal.querySelectorAll("[data-social-username]").forEach((button) => button.addEventListener("click", () => {
+    onlineElements.friendUsername.value = button.dataset.socialUsername;
+  }));
+  onlineElements.friendsModal.querySelectorAll("[data-accept-friend], [data-decline-friend]").forEach((button) => button.addEventListener("click", async () => {
+    const username = button.dataset.acceptFriend || button.dataset.declineFriend;
+    await rpc("respond_arpon_friend_request", { p_session_token: account.token, p_requester_username: username, p_accept: Boolean(button.dataset.acceptFriend) });
+    refreshFriends();
+  }));
+  onlineElements.friendsModal.querySelectorAll("[data-join-invite]").forEach((button) => button.addEventListener("click", () => joinPrivateRoomWithCode(button.dataset.joinInvite)));
+}
+
+async function sendFriendRequest() {
+  try {
+    await rpc("send_arpon_friend_request", { p_session_token: account.token, p_username: onlineElements.friendUsername.value });
+    setFriendsMessage("Friend request sent.");
+  } catch (error) { setFriendsMessage(error.message, true); }
+}
+
+async function sendFriendMessage() {
+  try {
+    await rpc("send_arpon_message", { p_session_token: account.token, p_username: onlineElements.friendUsername.value, p_body: onlineElements.friendMessage.value });
+    onlineElements.friendMessage.value = "";
+    setFriendsMessage("Message sent.");
+    refreshFriends();
+  } catch (error) { setFriendsMessage(error.message, true); }
+}
+
+async function sendFriendlyBattleInvite() {
+  const username = onlineElements.friendUsername.value;
+  if (!username) return setFriendsMessage("Choose a friend first.", true);
+  rememberPlayerName();
+  setFriendsMessage("Creating friendly battle...");
+  try {
+    const room = await rpc("create_arpon_private_room", {
+      p_player_token: session.token, p_display_name: playerName(), p_turn_limit: 24, p_wall_limit: 24, p_ranked: false,
+    });
+    await rpc("link_arpon_player_account", { p_game_id: room.game.id, p_player_token: session.token, p_session_token: account.token });
+    await rpc("send_arpon_battle_invite", { p_session_token: account.token, p_username: username, p_game_id: room.game.id });
+    onlineElements.friendsModal.hidden = true;
+    await enterRoom(room);
+  } catch (error) { setFriendsMessage(error.message, true); }
+}
+
+async function joinPrivateRoomWithCode(code) {
+  onlineElements.roomCodeInput.value = code;
+  onlineElements.friendsModal.hidden = true;
+  await joinPrivateRoom();
+}
+
+async function showAdmin() {
+  if (!account.profile?.is_admin) return;
+  onlineElements.adminModal.hidden = false;
+  onlineElements.adminAccountList.textContent = "Loading accounts...";
+  try {
+    const data = await rpc("get_arpon_admin_dashboard", { p_session_token: account.token });
+    onlineElements.adminStats.innerHTML = `<div><strong>${data.online_accounts}</strong><span>signed-in online</span></div><div><strong>${data.active_room_players}</strong><span>room players online</span></div><div><strong>${data.active_games}</strong><span>active games</span></div><div><strong>${data.accounts.length}</strong><span>accounts</span></div>`;
+    onlineElements.adminAccountList.innerHTML = data.accounts.map((item) => `
+      <article class="${item.online ? "online" : ""}">
+        <div><strong>${escapeOnline(item.username)}</strong><span>${item.online ? "Online" : "Offline"} · Created ${new Date(item.created_at).toLocaleDateString()}</span></div>
+        <p>${item.ranked_wins}–${item.ranked_losses} ranked · ${item.solo_wins}–${item.solo_losses} robot</p>
+        ${item.is_admin ? "<em>Protected creator account</em>" : `<div>${item.locked_until && new Date(item.locked_until) > new Date() ? `<button data-admin-unlock="${escapeOnline(item.username)}" type="button">Unlock Account</button>` : ""}<button data-admin-reset="${escapeOnline(item.username)}" type="button">Reset Record</button><button data-admin-delete="${escapeOnline(item.username)}" type="button">Delete Account</button></div>`}
+      </article>`).join("");
+    bindAdminActions();
+  } catch (error) { onlineElements.adminMessage.textContent = error.message; }
+}
+
+function bindAdminActions() {
+  onlineElements.adminAccountList.querySelectorAll("[data-admin-unlock]").forEach((button) => button.addEventListener("click", async () => {
+    try {
+      await rpc("admin_unlock_arpon_account", { p_session_token: account.token, p_username: button.dataset.adminUnlock });
+      showAdmin();
+    } catch (error) { onlineElements.adminMessage.textContent = error.message; }
+  }));
+  onlineElements.adminAccountList.querySelectorAll("[data-admin-reset]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm(`Reset all wins and losses for ${button.dataset.adminReset}?`)) return;
+    try {
+      await rpc("admin_reset_arpon_record", { p_session_token: account.token, p_username: button.dataset.adminReset });
+      showAdmin();
+    } catch (error) { onlineElements.adminMessage.textContent = error.message; }
+  }));
+  onlineElements.adminAccountList.querySelectorAll("[data-admin-delete]").forEach((button) => button.addEventListener("click", async () => {
+    if (!confirm(`Permanently delete ${button.dataset.adminDelete}?`)) return;
+    try {
+      await rpc("admin_delete_arpon_account", { p_session_token: account.token, p_username: button.dataset.adminDelete });
+      showAdmin();
+    } catch (error) { onlineElements.adminMessage.textContent = error.message; }
+  }));
 }
 
 async function recordGameComplete(result) {
@@ -572,9 +733,37 @@ onlineElements.closeAccountButton.addEventListener("click", () => {
 onlineElements.accountLoginButton.addEventListener("click", () => submitAccount(false));
 onlineElements.accountCreateButton.addEventListener("click", () => submitAccount(true));
 onlineElements.accountLogoutButton.addEventListener("click", logoutAccount);
-onlineElements.leaderboardButton.addEventListener("click", showLeaderboard);
+onlineElements.changePasswordButton.addEventListener("click", changePassword);
+onlineElements.leaderboardButton.addEventListener("click", () => showLeaderboard(true));
 onlineElements.closeLeaderboardButton.addEventListener("click", () => {
   onlineElements.leaderboardModal.hidden = true;
+});
+document.querySelectorAll("[data-leaderboard-metric]").forEach((button) => button.addEventListener("click", () => {
+  leaderboard.metric = button.dataset.leaderboardMetric;
+  document.querySelectorAll("[data-leaderboard-metric]").forEach((item) => item.classList.toggle("active", item === button));
+  showLeaderboard(true);
+}));
+onlineElements.leaderboardPreviousButton.addEventListener("click", () => {
+  leaderboard.page = Math.max(0, leaderboard.page - 1);
+  showLeaderboard();
+});
+onlineElements.leaderboardNextButton.addEventListener("click", () => {
+  leaderboard.page += 1;
+  showLeaderboard();
+});
+onlineElements.friendsButton.addEventListener("click", () => {
+  onlineElements.friendsModal.hidden = false;
+  refreshFriends();
+});
+onlineElements.closeFriendsButton.addEventListener("click", () => {
+  onlineElements.friendsModal.hidden = true;
+});
+onlineElements.sendFriendRequestButton.addEventListener("click", sendFriendRequest);
+onlineElements.sendFriendMessageButton.addEventListener("click", sendFriendMessage);
+onlineElements.sendBattleInviteButton.addEventListener("click", sendFriendlyBattleInvite);
+onlineElements.adminButton.addEventListener("click", showAdmin);
+onlineElements.closeAdminButton.addEventListener("click", () => {
+  onlineElements.adminModal.hidden = true;
 });
 
 window.ArponOnline = {
@@ -584,6 +773,9 @@ window.ArponOnline = {
   isOnline: () => session.active,
   onGameRendered: schedulePush,
   onGameComplete: recordGameComplete,
+  onPlayerForfeit: (team) => {
+    if (session.active && session.room?.game?.is_host) rpc("record_arpon_forfeit", { p_game_id: session.gameId, p_host_token: session.token, p_team: team }).catch(() => {});
+  },
   onResetToLobby: () => {
     disconnectOnline();
     showHomePanel("menu");
@@ -595,6 +787,11 @@ refreshAccount();
 showHomePanel("menu");
 clearInterval(matchmakingCountTimer);
 matchmakingCountTimer = setInterval(refreshMatchmakingCount, MATCHMAKING_COUNT_INTERVAL);
+clearInterval(presenceTimer);
+presenceTimer = setInterval(touchPresence, PRESENCE_INTERVAL);
+clearInterval(socialTimer);
+socialTimer = setInterval(refreshFriends, PRESENCE_INTERVAL);
+touchPresence();
 
 let savedRoom = null;
 try {

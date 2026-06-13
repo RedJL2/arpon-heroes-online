@@ -24,6 +24,14 @@
             <span id="moveCaption">Steps</span>
             <strong id="moveLabel">-</strong>
           </div>
+          <div class="status-block compact always-turn">
+            <span>Turn</span>
+            <strong id="turnCounterLabel">1/24</strong>
+          </div>
+          <div class="status-block compact timer-block" id="timerBlock" hidden>
+            <span>Time left</span>
+            <strong id="timerLabel">1:30</strong>
+          </div>
           <button class="dice-button" id="rollButton" type="button">
             <span class="die-face" id="diceIcon">D6</span>
             <span id="diceLabel">Roll</span>
@@ -127,7 +135,9 @@
           <div class="account-actions">
             <button class="back-action" id="accountButton" type="button">Account &amp; Record</button>
             <span id="accountSummary">Playing as guest</span>
+            <button class="back-action" id="friendsButton" type="button" hidden>Friends</button>
             <button class="back-action" id="leaderboardButton" type="button">Leaderboard</button>
+            <button class="back-action admin-action" id="adminButton" type="button" hidden>Creator View</button>
           </div>
           <p class="home-note">Online games begin with two players. Matchmaking waits up to two minutes for players three and four.</p>
         </section>
@@ -147,8 +157,8 @@
           </div>
           <label class="turn-limit-control" for="turnLimitInput">
             <span>Battle length</span>
-            <strong id="turnLimitValue">40 turns</strong>
-            <input id="turnLimitInput" type="range" min="8" max="80" step="4" value="40" />
+            <strong id="turnLimitValue">48 turns</strong>
+            <input id="turnLimitInput" type="range" min="8" max="80" step="4" value="48" />
             <small>At the limit, the squad with the most combined HP wins.</small>
           </label>
           <label class="turn-limit-control" for="wallLimitInput">
@@ -197,8 +207,8 @@
           <div class="private-settings">
             <label class="turn-limit-control" for="privateTurnLimitInput">
               <span>Battle length</span>
-              <strong id="privateTurnLimitValue">40 turns</strong>
-              <input id="privateTurnLimitInput" type="range" min="8" max="80" step="4" value="40" />
+              <strong id="privateTurnLimitValue">24 turns</strong>
+              <input id="privateTurnLimitInput" type="range" min="8" max="80" step="4" value="24" />
             </label>
             <label class="turn-limit-control" for="privateWallLimitInput">
               <span>Walls</span>
@@ -356,6 +366,12 @@
         </div>
         <div class="account-record" id="accountRecord"></div>
         <p class="online-message" id="accountMessage">Sign in to save ranked and robot battle records.</p>
+        <div class="password-change" id="passwordChange" hidden>
+          <h3>Change Password</h3>
+          <label class="online-field"><span>Current password</span><input id="currentPassword" type="password" autocomplete="current-password" /></label>
+          <label class="online-field"><span>New password</span><input id="newPassword" type="password" autocomplete="new-password" /></label>
+          <button class="secondary-action" id="changePasswordButton" type="button">Update Password</button>
+        </div>
         <button class="back-action" id="accountLogoutButton" type="button" hidden>Sign Out</button>
       </section>
     </div>
@@ -363,10 +379,57 @@
     <div class="modal-backdrop" id="leaderboardModal" hidden>
       <section class="modal leaderboard-modal">
         <div class="modal-title-row">
-          <div><p class="eyebrow">Ranked battles</p><h2>Leaderboard</h2></div>
+          <div><p class="eyebrow">Player records</p><h2>Leaderboard</h2></div>
           <button class="tool-button" id="closeLeaderboardButton" type="button">Close</button>
         </div>
+        <div class="leaderboard-tabs">
+          <button class="leaderboard-tab active" data-leaderboard-metric="ranked_wins" type="button">Ranked Wins</button>
+          <button class="leaderboard-tab" data-leaderboard-metric="ranked_rate" type="button">Ranked Winrate</button>
+          <button class="leaderboard-tab" data-leaderboard-metric="solo_wins" type="button">Robot Wins</button>
+          <button class="leaderboard-tab" data-leaderboard-metric="solo_rate" type="button">Robot Winrate</button>
+        </div>
         <div class="leaderboard-list" id="leaderboardList">Loading leaderboard...</div>
+        <div class="leaderboard-pages">
+          <button class="back-action" id="leaderboardPreviousButton" type="button">Previous</button>
+          <strong id="leaderboardPageLabel">Page 1</strong>
+          <button class="back-action" id="leaderboardNextButton" type="button">Next</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="friendsModal" hidden>
+      <section class="modal friends-modal">
+        <div class="modal-title-row">
+          <div><p class="eyebrow">Friends, messages, and battles</p><h2>Friend Center</h2></div>
+          <button class="tool-button" id="closeFriendsButton" type="button">Close</button>
+        </div>
+        <div class="friend-compose">
+          <label class="online-field"><span>Exact username</span><input id="friendUsername" maxlength="18" placeholder="FriendName" /></label>
+          <div class="friend-actions">
+            <button class="secondary-action" id="sendFriendRequestButton" type="button">Send Request</button>
+            <button class="primary-action" id="sendBattleInviteButton" type="button">Friendly Battle</button>
+          </div>
+          <label class="online-field friend-message-field"><span>Message</span><textarea id="friendMessage" maxlength="500" placeholder="Write a message..."></textarea></label>
+          <button class="secondary-action" id="sendFriendMessageButton" type="button">Send Message</button>
+        </div>
+        <p class="online-message" id="friendsMessage">Friends can see when you are online.</p>
+        <div class="social-columns">
+          <section><h3>Friends</h3><div id="friendsList" class="social-list"></div></section>
+          <section><h3>Requests &amp; Battle Invites</h3><div id="friendRequestsList" class="social-list"></div></section>
+          <section><h3>Recent Messages</h3><div id="friendMessagesList" class="social-list"></div></section>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="adminModal" hidden>
+      <section class="modal admin-modal">
+        <div class="modal-title-row">
+          <div><p class="eyebrow">Creator-only controls</p><h2>MODVIEW</h2></div>
+          <button class="tool-button" id="closeAdminButton" type="button">Close</button>
+        </div>
+        <div class="admin-stats" id="adminStats"></div>
+        <p class="online-message" id="adminMessage">Passwords are never visible, including to the creator.</p>
+        <div class="admin-account-list" id="adminAccountList"></div>
       </section>
     </div>
 
