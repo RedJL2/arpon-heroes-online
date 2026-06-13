@@ -95,6 +95,7 @@ const state = {
   wallCounts: {},
   wallSkipped: {},
   walls: [],
+  wallBatchStartIndex: 0,
   wallLimit: DEFAULT_WALL_LIMIT,
   placeTeamIndex: 0,
   placeSetIndex: 0,
@@ -120,6 +121,7 @@ const state = {
   receiptContent: "",
   receiptExpiresAt: 0,
   receiptId: null,
+  turnEndNotice: null,
   victory: null,
   log: [],
 };
@@ -138,20 +140,28 @@ const deviceState = {
   robotTimer: null,
   timerInterval: null,
   handledTimerKey: null,
+  automaticTurnTimer: null,
+  lastHpByLoadout: {},
+  diceAnimationTimer: null,
+  rollActionLock: null,
+  resolvedAbilityRollKey: null,
+  dismissedTurnEndNoticeToken: null,
+  turnEndNoticeTimer: null,
 };
 
 const elements = Object.fromEntries(
   [
-    "board", "heroList", "setupTitle", "setupBadge", "setupPanel", "selectedCard", "cardStack", "battleLog", "rollButton", "endTurnButton",
+    "board", "heroList", "setupTitle", "setupBadge", "setupPanel", "selectedCard", "cardStack", "battleLog", "rollButton",
     "resetButton", "diceIcon", "diceLabel", "turnLabel", "phaseLabel", "moveCaption", "moveLabel", "battleHint", "lobbyModal", "lobbyPlayers",
     "startGameButton", "passModal", "passEmblem", "passTitle", "passMessage", "passButton", "rulesModal", "rulesButton", "closeRulesButton",
-    "centerRollButton", "centerDiceIcon", "centerDiceLabel", "centerEndTurnButton", "cardZoomModal", "cardZoomImage", "cardZoomTitle", "closeCardZoomButton",
+    "centerRollButton", "centerDiceIcon", "centerDiceLabel", "cardZoomModal", "cardZoomImage", "cardZoomTitle", "closeCardZoomButton",
     "rollPromptModal", "rollPromptTitle", "rollPromptMessage", "abilityRollButton", "diceResultOverlay", "diceResultLabel", "diceResultValue",
     "turnLimitInput", "turnLimitValue", "wallLimitInput", "wallLimitValue", "startSoloButton", "soloTurnLimitInput", "soloTurnLimitValue",
     "soloWallLimitInput", "soloWallLimitValue", "attackReceipt", "victoryModal", "victoryTitle", "victoryReason", "victoryScores", "homeButton",
-    "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton",
+    "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton", "closeMoveChoiceButton",
     "stayConfirmModal", "stayConfirmMessage", "cancelStayButton", "confirmStayButton",
     "setPreviewModal", "setPreviewTitle", "setPreviewCards", "closeSetPreviewButton", "turnCounterLabel", "timerBlock", "timerLabel",
+    "turnEndedOverlay", "turnEndedPlayer", "muteButton", "squadDrawerButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -185,6 +195,9 @@ function defaultTurnLimit(playerCount) {
 
 function resetToLobby() {
   clearTimeout(deviceState.robotTimer);
+  clearTimeout(deviceState.automaticTurnTimer);
+  clearTimeout(deviceState.turnEndNoticeTimer);
+  clearInterval(deviceState.diceAnimationTimer);
   window.ArponOnline?.onResetToLobby?.();
   state.mode = "local";
   state.matchId = crypto.randomUUID();
@@ -203,6 +216,7 @@ function resetToLobby() {
   state.wallCounts = {};
   state.wallSkipped = {};
   state.walls = [];
+  state.wallBatchStartIndex = 0;
   state.wallLimit = DEFAULT_WALL_LIMIT;
   state.dice = null;
   state.movementLeft = 0;
@@ -221,6 +235,7 @@ function resetToLobby() {
   state.receiptContent = "";
   state.receiptExpiresAt = 0;
   state.receiptId = null;
+  state.turnEndNotice = null;
   state.victory = null;
   deviceState.dismissedReceiptId = null;
   deviceState.lastDiceResultToken = null;
@@ -235,6 +250,14 @@ function resetToLobby() {
   deviceState.robotActing = false;
   deviceState.robotTimer = null;
   deviceState.handledTimerKey = null;
+  deviceState.automaticTurnTimer = null;
+  deviceState.diceAnimationTimer = null;
+  deviceState.rollActionLock = null;
+  deviceState.resolvedAbilityRollKey = null;
+  deviceState.dismissedTurnEndNoticeToken = null;
+  deviceState.turnEndNoticeTimer = null;
+  deviceState.lastHpByLoadout = {};
+  document.body.classList.remove("squad-drawer-open");
   closeSetPreview();
   elements.lobbyModal.hidden = false;
   elements.passModal.hidden = true;
@@ -249,6 +272,7 @@ function resetToLobby() {
 function rollPendingAbility() {
   const pending = state.pendingRoll;
   if (!pending || !canLocalControlTeam(pending.team)) return;
+  deviceState.resolvedAbilityRollKey = abilityRollKey(pending);
   const rollLabel = pending.title;
   const rollTeam = pending.team;
   state.pendingRoll = null;
@@ -307,6 +331,7 @@ function startGame() {
   state.wallCounts = Object.fromEntries(activeTeams().map((team) => [team, 0]));
   state.wallSkipped = Object.fromEntries(activeTeams().map((team) => [team, 0]));
   state.walls = [];
+  state.wallBatchStartIndex = 0;
   state.placeTeamIndex = 0;
   state.placeSetIndex = 0;
   state.dice = null;
@@ -326,6 +351,7 @@ function startGame() {
   state.timedRobotTeams = [];
   state.timer = null;
   state.sharedDiceResult = null;
+  state.turnEndNotice = null;
   state.victory = null;
   state.turnNumber = 1;
   state.log = [];
@@ -436,10 +462,19 @@ function render(sync = true) {
   renderLog();
   renderPendingRoll();
   renderSharedDiceResult();
+  renderTurnEndNotice();
   renderVictory();
   renderSetPreview();
+  renderAudioButton();
   scheduleRobotAction();
   if (sync) window.ArponOnline?.onGameRendered?.(exportGameState());
+}
+
+function renderAudioButton() {
+  const muted = window.ArponAudio?.isMuted?.() ?? false;
+  elements.muteButton.textContent = muted ? "Muted" : "Sound";
+  elements.muteButton.setAttribute("aria-pressed", String(muted));
+  elements.muteButton.title = muted ? "Unmute sound" : "Mute sound";
 }
 
 function renderTopbar() {
@@ -455,24 +490,38 @@ function renderTopbar() {
   elements.turnCounterLabel.textContent = `${state.turnNumber}/${state.turnLimit}`;
   elements.diceIcon.textContent = state.dice || "D6";
   elements.diceLabel.textContent = state.phase === "retreatRoll" ? "Retreat" : state.hasRolled ? "Rolled" : "Roll";
-  const showCenterRoll = canControl && ["battleRoll", "retreatRoll"].includes(state.phase);
-  const noAttacksRemain = state.phase === "attack" && !state.pendingAttack && !state.pendingRoll && remainingAttackPairs().length === 0;
-  const showCenterEnd = canControl && (state.phase === "done" || noAttacksRemain);
-  elements.rollButton.hidden = showCenterRoll;
-  elements.rollButton.disabled = !canControl || !["battleRoll", "retreatRoll"].includes(state.phase);
+  const diceResultActive = Number(state.sharedDiceResult?.expiresAt || 0) > Date.now();
+  const rollLocked = deviceState.rollActionLock
+    && deviceState.rollActionLock.turnNumber === state.turnNumber
+    && deviceState.rollActionLock.phase === state.phase
+    && deviceState.rollActionLock.retreatHeroId === state.retreatHeroId;
+  const showCenterRoll = canControl && !diceResultActive && !rollLocked && ["battleRoll", "retreatRoll"].includes(state.phase);
+  const rollPhase = ["battleRoll", "retreatRoll"].includes(state.phase);
+  elements.rollButton.hidden = rollPhase;
+  elements.rollButton.disabled = !canControl || !rollPhase || diceResultActive || rollLocked;
   elements.centerRollButton.hidden = !showCenterRoll;
-  elements.endTurnButton.hidden = showCenterEnd;
-  elements.centerEndTurnButton.hidden = !showCenterEnd;
-  elements.centerEndTurnButton.textContent = noAttacksRemain ? "No Attacks · Continue" : "End Turn";
-  elements.centerEndTurnButton.style.setProperty("--team-color", teams[state.activeTeam]?.color || teams.red.color);
   elements.centerDiceIcon.textContent = state.dice || "D6";
   elements.centerDiceLabel.textContent = state.phase === "retreatRoll" ? "Roll Retreat" : "Roll Movement";
-  elements.endTurnButton.disabled = !canControl || Boolean(state.pendingAttack || state.pendingRoll) || !["attack", "retreatRoll", "retreat", "done"].includes(state.phase);
   elements.battleHint.textContent = battleHint();
   const boardTeam = state.mode === "solo" ? "red" : window.ArponOnline?.getLocalTeam?.() || visibleTeam || state.activeTeam;
   elements.board.style.setProperty("--board-rotation", boardRotation(boardTeam));
   elements.board.style.setProperty("--counter-rotation", boardCounterRotation(boardTeam));
   renderTimer();
+}
+
+function renderTurnEndNotice() {
+  const notice = state.turnEndNotice;
+  clearTimeout(deviceState.turnEndNoticeTimer);
+  if (!notice || Number(notice.expiresAt) <= Date.now() || deviceState.dismissedTurnEndNoticeToken === notice.token) {
+    elements.turnEndedOverlay.hidden = true;
+    return;
+  }
+  elements.turnEndedPlayer.textContent = displayName(notice.team);
+  elements.turnEndedOverlay.style.setProperty("--notice-color", teams[notice.team]?.color || teams.red.color);
+  elements.turnEndedOverlay.hidden = false;
+  deviceState.turnEndNoticeTimer = setTimeout(() => {
+    elements.turnEndedOverlay.hidden = true;
+  }, Math.max(0, Number(notice.expiresAt) - Date.now()));
 }
 
 function phaseTimerKey() {
@@ -572,6 +621,7 @@ function skipCurrentWallBatch() {
   else {
     state.wallOwnerTurn = nextWallTeam(team);
     state.activeTeam = state.wallOwnerTurn;
+    state.wallBatchStartIndex = state.walls.length;
   }
   render();
 }
@@ -656,15 +706,19 @@ function renderSetupPanel() {
   if (state.phase === "walls") {
     const team = state.wallOwnerTurn;
     const total = wallTarget(team);
-    const batchNumber = (wallProgress(team) % WALLS_PER_SETUP_TURN) + 1;
+    const remaining = Math.max(0, state.wallLimit - totalWallProgress());
+    const playerRemaining = Math.max(0, total - wallProgress(team));
+    const canUndo = canUndoWall();
     elements.setupTitle.textContent = "Defensive Walls";
-    elements.setupBadge.textContent = `${state.walls.length} / ${state.wallLimit}`;
+    elements.setupBadge.textContent = `${remaining} left`;
     elements.setupPanel.innerHTML = `
-      <div class="setup-card team-accent" style="--team-color:${teams[team].color}">
+      <div class="wall-counter-card team-accent" style="--team-color:${teams[team].color}">
+        <strong>${remaining}</strong><span>Walls remaining</span>
         <h3>${displayName(team)}</h3>
-        <p>Place wall ${batchNumber} of this four-wall turn. ${state.wallCounts[team]} placed, ${state.wallSkipped[team] || 0} skipped, of ${total} assigned walls.</p>
-        <div class="roll-summary">${setupRollSummary()}</div>
+        <p>${playerRemaining} assigned to this player · place up to 4 this turn</p>
+        <button class="secondary-action wall-undo-button" id="undoWallButton" type="button" ${canUndo ? "" : "disabled"}>Undo Last Wall</button>
       </div>`;
+    elements.setupPanel.querySelector("#undoWallButton")?.addEventListener("click", undoLastWall);
     return;
   }
   if (state.phase === "place") {
@@ -831,13 +885,19 @@ function createLoadout(team, setNumber, heroCard, armorCard, weaponCard) {
 
 function beginWallSetup() {
   const { rolls, winner } = rollSetupOrder();
-  state.phase = "walls";
   state.setupRolls = rolls;
   state.firstTeam = winner;
   state.activeTeam = winner;
   state.wallOwnerTurn = winner;
+  state.wallBatchStartIndex = state.walls.length;
   deviceState.selectedSetId = teamLoadouts(winner)[0]?.id || state.loadouts[0]?.id || null;
   logEvent(`Setup roll: ${setupRollSummary()}. ${displayName(winner)} starts.`, teams[winner].color);
+  if (state.wallLimit <= 0) {
+    logEvent("Wall setup is skipped for this battle.", "#30343b");
+    beginHeroPlacement();
+    return;
+  }
+  state.phase = "walls";
   logEvent(`Wall setup begins: ${state.wallLimit} total walls. Each player places four at a time.`, "#30343b");
   showDiceResult("Setup Rolls", activeTeams().map((team) => `${teams[team].short} ${rolls[team]}`).join(" · "));
 }
@@ -937,6 +997,7 @@ function renderPawns(highlights) {
     pawn.classList.toggle("selected", loadout.id === deviceState.selectedSetId);
     pawn.classList.toggle("targetable", selected && selected.team !== loadout.team && highlights.attack.has(posKey(loadout.x, loadout.y)));
     pawn.classList.toggle("inactive", loadout.team !== state.activeTeam);
+    pawn.classList.toggle("damage-hit", deviceState.lastHpByLoadout[loadout.id] !== undefined && loadout.currentHp < deviceState.lastHpByLoadout[loadout.id]);
     pawn.title = `${loadout.name}, ${displayName(loadout.team)}, Hero ${loadout.setNumber}`;
     pawn.innerHTML = `
       <span class="pawn-attack">${attackMark}<b>${loadout.weapon.effects.range}</b></span>
@@ -947,6 +1008,7 @@ function renderPawns(highlights) {
       onPawnClick(loadout.id);
     });
     elements.board.appendChild(pawn);
+    deviceState.lastHpByLoadout[loadout.id] = loadout.currentHp;
   });
 }
 
@@ -1072,7 +1134,7 @@ function onCellClick(x, y) {
   if (target && target.team !== selected.team && canAttack(selected, target)) return attackLoadout(selected, target);
   const move = getHighlights(selected).move.get(posKey(x, y));
   if (move && (!target || target.id === selected.id)) {
-    if (state.phase === "move" && move.returnMove) requestStayConfirmation(selected, move);
+    if (["move", "retreat"].includes(state.phase) && move.returnMove) requestStayConfirmation(selected, move);
     else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
     else moveLoadoutTo(selected, move);
   }
@@ -1080,7 +1142,9 @@ function onCellClick(x, y) {
 
 function requestStayConfirmation(loadout, move) {
   deviceState.pendingStayMove = { loadoutId: loadout.id, move };
-  elements.stayConfirmMessage.textContent = `${loadout.name} can spend the full ${move.steps}-step route and return here. Are you sure you do not want to move to another square?`;
+  elements.stayConfirmMessage.textContent = state.phase === "retreat"
+    ? `${loadout.name} can stay here instead of retreating. Are you sure?`
+    : `${loadout.name} can spend the full ${move.steps}-step route and return here. Are you sure you do not want to move to another square?`;
   elements.stayConfirmModal.style.setProperty("--team-color", teams[loadout.team].color);
   elements.stayConfirmModal.hidden = false;
 }
@@ -1091,7 +1155,7 @@ function resolveStayConfirmation(confirmStay) {
   elements.stayConfirmModal.hidden = true;
   if (!confirmStay || !pending) return;
   const loadout = getLoadout(pending.loadoutId);
-  if (!loadout || state.phase !== "move") return;
+  if (!loadout || !["move", "retreat"].includes(state.phase)) return;
   moveLoadoutTo(loadout, pending.move);
 }
 
@@ -1115,6 +1179,10 @@ function resolveMoveSpendChoice(finishMovement) {
   moveLoadoutTo(loadout, finishMovement ? { ...pending.move, steps: pending.move.fullSteps } : pending.move);
 }
 
+function closeMoveSpendChoice() {
+  elements.moveChoiceModal.hidden = true;
+}
+
 function onPawnClick(loadoutId) {
   const clicked = getLoadout(loadoutId);
   const selected = getSelectedLoadout();
@@ -1123,7 +1191,7 @@ function onPawnClick(loadoutId) {
   if (selected && clicked.id === selected.id) {
     const move = getHighlights(selected).move.get(posKey(clicked.x, clicked.y));
     if (move) {
-      if (state.phase === "move" && move.returnMove) requestStayConfirmation(selected, move);
+      if (["move", "retreat"].includes(state.phase) && move.returnMove) requestStayConfirmation(selected, move);
       else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
       else moveLoadoutTo(selected, move);
       return;
@@ -1138,13 +1206,33 @@ function placeWallSegment(axis, x, y) {
   if (!isWallSegmentLegal(axis, x, y, team)) return;
   state.walls.push({ axis, x, y, owner: team });
   state.wallCounts[team] += 1;
+  window.ArponAudio?.play("wall");
   logEvent(`${displayName(team)} placed wall ${state.wallCounts[team]} of ${wallTarget(team)}.`, teams[team].color);
   if (totalWallProgress() >= state.wallLimit || activeTeams().every((id) => wallProgress(id) >= wallTarget(id))) {
     beginHeroPlacement();
   } else {
-    state.wallOwnerTurn = shouldPassWallTurn(team) ? nextWallTeam(team) : team;
+    const nextTeam = shouldPassWallTurn(team) ? nextWallTeam(team) : team;
+    if (nextTeam !== team) state.wallBatchStartIndex = state.walls.length;
+    state.wallOwnerTurn = nextTeam;
     state.activeTeam = state.wallOwnerTurn;
   }
+  render();
+}
+
+function canUndoWall() {
+  const last = state.walls[state.walls.length - 1];
+  return state.phase === "walls"
+    && canLocalControlTeam(state.wallOwnerTurn)
+    && state.walls.length > Number(state.wallBatchStartIndex || 0)
+    && last?.owner === state.wallOwnerTurn;
+}
+
+function undoLastWall() {
+  if (!canUndoWall()) return;
+  const wall = state.walls.pop();
+  state.wallCounts[wall.owner] = Math.max(0, (state.wallCounts[wall.owner] || 0) - 1);
+  window.ArponAudio?.play("select");
+  logEvent(`${displayName(wall.owner)} removed the last wall.`, teams[wall.owner].color);
   render();
 }
 
@@ -1205,6 +1293,7 @@ function rollForPhase() {
   if (!["battleRoll", "retreatRoll"].includes(state.phase)) return;
   if (!canLocalControlTeam(state.activeTeam)) return;
   const rolledPhase = state.phase;
+  deviceState.rollActionLock = { turnNumber: state.turnNumber, phase: state.phase, retreatHeroId: state.retreatHeroId };
   const result = rollDie();
   state.dice = result;
   showDiceResult(rolledPhase === "battleRoll" ? "Movement Roll" : `${getLoadout(state.retreatHeroId)?.name || "Hero"} Retreat`, result, () => {
@@ -1214,6 +1303,7 @@ function rollForPhase() {
 }
 
 function beginMovement(result) {
+  deviceState.rollActionLock = null;
   state.hasRolled = true;
   state.movementLeft = result;
   state.movedHeroIds = [];
@@ -1229,6 +1319,7 @@ function beginMovement(result) {
 }
 
 function beginRetreatMove(result) {
+  deviceState.rollActionLock = null;
   const retreating = getLoadout(state.retreatHeroId);
   const penalty = state.retreatPenalties[state.retreatHeroId] || 0;
   state.retreatSteps = Math.max(0, result + (retreating?.hero.effects.retreatBonus || 0) - penalty);
@@ -1262,6 +1353,10 @@ function moveLoadoutTo(loadout, move) {
   if (state.movementLeft === 0) {
     state.phase = "attack";
     logEvent("Movement complete. Each Hero may attack every reachable enemy once.", teams[state.activeTeam].color);
+    if (remainingAttackPairs().length === 0) {
+      beginRetreats();
+      return;
+    }
   } else advanceToAttackIfMovementBlocked();
   render();
 }
@@ -1278,6 +1373,7 @@ function advanceToAttackIfMovementBlocked() {
     logEvent(`No legal path remained for the final ${state.movementLeft} movement.`, teams[state.activeTeam].color);
     state.movementLeft = 0;
     state.phase = "attack";
+    if (remainingAttackPairs().length === 0) beginRetreats();
   }
 }
 
@@ -1285,6 +1381,7 @@ function attackLoadout(attacker, target) {
   if (!canLocalControlTeam(attacker.team)) return;
   if (!canAttack(attacker, target) || state.pendingAttack) return;
   state.pendingAttack = { attackerId: attacker.id, targetId: target.id };
+  window.ArponAudio?.play("attack");
   const normalRange = Math.max(0, attacker.weapon.effects.range - (target.hero.effects.enemyRangeReduce || 0));
   const needsRangeRoll = Boolean(attacker.weapon.effects.rangeRollBonus) && lineDistance(attacker, target) > normalRange;
   const attackRule = attacker.weapon.effects.rollBonus || (needsRangeRoll ? attacker.weapon.effects.rangeRollBonus : null);
@@ -1324,6 +1421,7 @@ function applyResolvedAttack(attackerId, targetId, attackRoll, defenseRoll) {
   const distance = lineDistance(attacker, target);
   const report = calculateDamage(attacker, target, attackRoll, defenseRoll, distance);
   target.currentHp = Math.max(0, target.currentHp - report.damage);
+  if (report.damage > 0) window.ArponAudio?.play("damage");
   if (target.currentHp <= 0) target.ko = true;
   if (report.reflected > 0) {
     attacker.currentHp = Math.max(0, attacker.currentHp - report.reflected);
@@ -1366,8 +1464,7 @@ function remainingAttackPairs() {
 function beginRetreats() {
   state.retreatQueue = state.attackingHeroIds.filter((id) => !getLoadout(id)?.ko);
   if (!state.retreatQueue.length) {
-    state.phase = "done";
-    render();
+    completeTurnAutomatically();
     return;
   }
   state.retreatHeroId = state.retreatQueue.shift();
@@ -1387,7 +1484,8 @@ function finishCurrentRetreat() {
     state.dice = null;
   } else {
     state.retreatHeroId = null;
-    state.phase = "done";
+    completeTurnAutomatically();
+    return;
   }
   render();
 }
@@ -1558,7 +1656,7 @@ function attackPairKey(attacker, target) {
 }
 
 function requestAbilityRoll(team, title, message, action) {
-  state.pendingRoll = { ...action, team, title, message };
+  state.pendingRoll = { ...action, rollId: crypto.randomUUID(), team, title, message };
   render();
 }
 
@@ -1569,10 +1667,11 @@ function resolvePendingRoll(pending, roll) {
 
 function renderPendingRoll() {
   const pending = state.pendingRoll;
-  if (!pending) {
+  if (!pending || deviceState.resolvedAbilityRollKey === abilityRollKey(pending)) {
     elements.rollPromptModal.hidden = true;
     return;
   }
+  deviceState.resolvedAbilityRollKey = null;
   elements.rollPromptTitle.textContent = pending.title;
   elements.rollPromptMessage.textContent = pending.message;
   elements.rollPromptModal.style.setProperty("--ability-color", teams[pending.team]?.color || teams.red.color);
@@ -1580,6 +1679,11 @@ function renderPendingRoll() {
   elements.abilityRollButton.disabled = !canRoll;
   elements.abilityRollButton.textContent = canRoll ? "Roll D6" : `Waiting for ${displayName(pending.team)}`;
   elements.rollPromptModal.hidden = false;
+}
+
+function abilityRollKey(pending) {
+  if (!pending) return "";
+  return pending.rollId || [pending.kind, pending.team, pending.attackerId || "", pending.targetId || "", pending.title || ""].join(":");
 }
 
 function showDiceResult(label, value, callback, team = null) {
@@ -1602,7 +1706,20 @@ function displaySharedDiceResult(result) {
   deviceState.lastDiceResultToken = result.token;
   const { label, value, team } = result;
   elements.diceResultLabel.textContent = label;
-  elements.diceResultValue.textContent = value;
+  clearInterval(deviceState.diceAnimationTimer);
+  window.ArponAudio?.play("dice");
+  if (typeof value === "number") {
+    elements.diceResultValue.textContent = "1";
+    deviceState.diceAnimationTimer = setInterval(() => {
+      elements.diceResultValue.textContent = String(rollDie());
+    }, 75);
+    setTimeout(() => {
+      clearInterval(deviceState.diceAnimationTimer);
+      elements.diceResultValue.textContent = value;
+    }, 560);
+  } else {
+    elements.diceResultValue.textContent = value;
+  }
   elements.diceResultOverlay.style.setProperty("--result-color", teams[team]?.color || teams[state.activeTeam]?.color || teams.red.color);
   elements.diceResultOverlay.classList.toggle("multi", String(value).length > 1);
   elements.diceResultOverlay.hidden = false;
@@ -1789,7 +1906,6 @@ function isStepBlocked(x1, y1, x2, y2, ignoreWalls) {
   if (dx !== 0 && dy !== 0) {
     const horizontalCorner = { x: x1 + dx, y: y1 };
     const verticalCorner = { x: x1, y: y1 + dy };
-    if (isCornerFortress(horizontalCorner.x, horizontalCorner.y) || isCornerFortress(verticalCorner.x, verticalCorner.y)) return true;
     const horizontalFirst = routeAroundCornerOpen(
       [{ x: x1, y: y1 }, horizontalCorner, { x: x2, y: y2 }],
       ignoreWalls,
@@ -1860,7 +1976,31 @@ function endTurn() {
   advanceToNextTurn();
 }
 
+function completeTurnAutomatically() {
+  if (state.phase === "complete") return;
+  state.phase = "done";
+  state.turnEndNotice = {
+    token: crypto.randomUUID(),
+    team: state.activeTeam,
+    turnNumber: state.turnNumber,
+    expiresAt: Date.now() + 3000,
+  };
+  window.ArponAudio?.play("turnEnd");
+  clearTimeout(deviceState.automaticTurnTimer);
+  render();
+  if (!canLocalControlTeam(state.activeTeam)) return;
+  const endingTeam = state.activeTeam;
+  const endingTurn = state.turnNumber;
+  deviceState.automaticTurnTimer = setTimeout(() => {
+    if (state.phase !== "done" || state.activeTeam !== endingTeam || state.turnNumber !== endingTurn) return;
+    advanceToNextTurn();
+  }, 1150);
+}
+
 function advanceToNextTurn() {
+  clearTimeout(deviceState.automaticTurnTimer);
+  deviceState.automaticTurnTimer = null;
+  deviceState.dismissedTurnEndNoticeToken = state.turnEndNotice?.token || null;
   if (state.turnNumber >= state.turnLimit) {
     finishByHealth();
     return;
@@ -1887,6 +2027,7 @@ function advanceToNextTurn() {
   state.pendingAttack = null;
   deviceState.selectedSetId = teamLoadouts(state.activeTeam).find((loadout) => !loadout.ko)?.id || null;
   logEvent(`${displayName(state.activeTeam)} takes the turn.`, teams[state.activeTeam].color);
+  window.ArponAudio?.play("turnStart");
   if (state.mode !== "solo") showPass(state.activeTeam, "Roll once, then split movement between your Heroes.");
   render();
 }
@@ -1910,6 +2051,7 @@ function finishGame(winners, reason) {
   state.pendingAttack = null;
   state.pendingRoll = null;
   state.victory = { winners, reason };
+  window.ArponAudio?.play("victory");
   elements.passModal.hidden = true;
   elements.rollPromptModal.hidden = true;
   hideAttackReceipt();
@@ -1975,6 +2117,7 @@ function selectLoadout(id) {
   const loadout = getLoadout(id);
   if (loadout) {
     deviceState.selectedSetId = id;
+    window.ArponAudio?.play("select");
     render(false);
   }
 }
@@ -2197,7 +2340,7 @@ function startOnlineGame(players, turnLimit = null, wallLimit = DEFAULT_WALL_LIM
   state.ranked = Boolean(ranked);
   state.robotTeams = [];
   state.turnLimit = Number(turnLimit) || defaultTurnLimit(players.length);
-  state.wallLimit = Number(wallLimit) || DEFAULT_WALL_LIMIT;
+  state.wallLimit = Number.isFinite(Number(wallLimit)) ? Number(wallLimit) : DEFAULT_WALL_LIMIT;
   deviceState.turnLimitCustomized = false;
   startGame();
 }
@@ -2230,10 +2373,10 @@ function battleHint() {
   if (state.phase === "place") return "Place the highlighted Hero in its base.";
   if (state.phase === "battleRoll") return "Roll once for movement.";
   if (state.phase === "move") return `Spend all ${state.movementLeft} remaining steps. Select either Hero to split movement.`;
-  if (state.phase === "attack") return "Select either Hero and attack each outlined enemy once. End begins retreats.";
-  if (state.phase === "retreatRoll") return `Roll retreat for ${getLoadout(state.retreatHeroId)?.name || "this Hero"}, or end to stay.`;
-  if (state.phase === "retreat") return `Choose where ${getLoadout(state.retreatHeroId)?.name || "this Hero"} retreats, or end to stay.`;
-  if (state.phase === "done") return "End the turn.";
+  if (state.phase === "attack") return "Select either Hero and attack each outlined enemy once.";
+  if (state.phase === "retreatRoll") return `Roll retreat for ${getLoadout(state.retreatHeroId)?.name || "this Hero"}.`;
+  if (state.phase === "retreat") return `Choose where ${getLoadout(state.retreatHeroId)?.name || "this Hero"} retreats, or click its square to stay.`;
+  if (state.phase === "done") return "Turn ended.";
   if (state.phase === "complete") return "The battle is complete.";
   return "Configure players to begin.";
 }
@@ -2248,8 +2391,14 @@ function boardCounterRotation(team) {
 
 elements.rollButton.addEventListener("click", rollForPhase);
 elements.centerRollButton.addEventListener("click", rollForPhase);
-elements.centerEndTurnButton.addEventListener("click", endTurn);
-elements.endTurnButton.addEventListener("click", endTurn);
+elements.muteButton.addEventListener("click", () => {
+  window.ArponAudio?.toggle();
+  renderAudioButton();
+});
+elements.squadDrawerButton.addEventListener("click", () => {
+  const open = document.body.classList.toggle("squad-drawer-open");
+  elements.squadDrawerButton.setAttribute("aria-expanded", String(open));
+});
 elements.resetButton.addEventListener("click", resetToLobby);
 elements.startGameButton.addEventListener("click", startGame);
 elements.turnLimitInput.addEventListener("input", () => {
@@ -2305,17 +2454,11 @@ document.addEventListener("click", (event) => {
   event.stopPropagation();
   openCardZoom(zoomButton.dataset.cardZoom);
 });
-document.addEventListener("pointerdown", (event) => {
-  const button = event.target.closest("button:not(:disabled)");
-  if (!button) return;
-  button.classList.remove("button-pulse");
-  requestAnimationFrame(() => button.classList.add("button-pulse"));
-  setTimeout(() => button.classList.remove("button-pulse"), 260);
-});
 document.querySelectorAll(".count-button").forEach((button) => button.addEventListener("click", () => setPlayerCount(Number(button.dataset.count))));
 elements.abilityRollButton.addEventListener("click", rollPendingAbility);
 elements.keepMovementButton.addEventListener("click", () => resolveMoveSpendChoice(false));
 elements.finishMovementButton.addEventListener("click", () => resolveMoveSpendChoice(true));
+elements.closeMoveChoiceButton.addEventListener("click", closeMoveSpendChoice);
 elements.cancelStayButton.addEventListener("click", () => resolveStayConfirmation(false));
 elements.confirmStayButton.addEventListener("click", () => resolveStayConfirmation(true));
 elements.closeSetPreviewButton.addEventListener("click", closeSetPreview);
@@ -2333,7 +2476,7 @@ window.ArponGame = {
   startOnlineGame,
   cards,
   actions: { startGame, startSoloGame, rollForPhase, endTurn, placeWallSegment, placeHero, attackLoadout, moveLoadoutTo },
-  inspect: { getReachableCells },
+  inspect: { getReachableCells, isStepBlocked, getAttackTargets },
 };
 
 function cardZoomButton(card) {

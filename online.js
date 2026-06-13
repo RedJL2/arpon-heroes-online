@@ -16,6 +16,7 @@ const onlineElements = Object.fromEntries(
     "closeLeaderboardButton", "leaderboardList", "leaderboardPreviousButton", "leaderboardNextButton", "leaderboardPageLabel",
     "friendsButton", "friendsModal", "closeFriendsButton", "friendUsername", "friendMessage", "sendFriendRequestButton", "sendFriendMessageButton",
     "sendBattleInviteButton", "friendsMessage", "friendsList", "friendRequestsList", "friendMessagesList",
+    "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleRankedInput",
     "adminButton", "adminModal", "closeAdminButton", "adminStats", "adminMessage", "adminAccountList",
     "passwordChange", "currentPassword", "newPassword", "changePasswordButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
@@ -46,6 +47,7 @@ const account = {
   token: localStorage.getItem("arpon-account-session") || null,
   profile: null,
   recordedResults: new Set(),
+  pendingResults: new Set(),
 };
 const leaderboard = { metric: "ranked_wins", page: 0, rows: [] };
 let presenceTimer = null;
@@ -537,6 +539,8 @@ async function showLeaderboard(resetPage = false) {
   onlineElements.leaderboardList.textContent = "Loading leaderboard...";
   try {
     const rows = await rpc("get_arpon_leaderboard_page", { p_metric: leaderboard.metric, p_page: leaderboard.page });
+    const score = (row) => Number(row[leaderboard.metric] || 0);
+    rows.sort((a, b) => score(b) - score(a) || String(a.username).localeCompare(String(b.username)));
     leaderboard.rows = rows;
     onlineElements.leaderboardPageLabel.textContent = `Page ${leaderboard.page + 1}`;
     onlineElements.leaderboardPreviousButton.disabled = leaderboard.page === 0;
@@ -614,7 +618,11 @@ async function sendFriendlyBattleInvite() {
   setFriendsMessage("Creating friendly battle...");
   try {
     const room = await rpc("create_arpon_private_room", {
-      p_player_token: session.token, p_display_name: playerName(), p_turn_limit: 24, p_wall_limit: 24, p_ranked: false,
+      p_player_token: session.token,
+      p_display_name: playerName(),
+      p_turn_limit: Number(onlineElements.friendBattleTurnLimitInput?.value || 24),
+      p_wall_limit: Number(onlineElements.friendBattleWallLimitInput?.value || 24),
+      p_ranked: Boolean(onlineElements.friendBattleRankedInput?.checked),
     });
     await rpc("link_arpon_player_account", { p_game_id: room.game.id, p_player_token: session.token, p_session_token: account.token });
     await rpc("send_arpon_battle_invite", { p_session_token: account.token, p_username: username, p_game_id: room.game.id });
@@ -669,26 +677,41 @@ function bindAdminActions() {
   }));
 }
 
-async function recordGameComplete(result) {
+async function recordGameComplete(result, attempt = 0, context = null) {
   if (!account.token || account.recordedResults.has(result.matchId)) return;
-  account.recordedResults.add(result.matchId);
+  if (attempt === 0 && account.pendingResults.has(result.matchId)) return;
+  if (attempt === 0) account.pendingResults.add(result.matchId);
+  const recordContext = context || {
+    sessionToken: account.token,
+    gameId: session.gameId,
+    playerToken: session.token,
+  };
   try {
     if (result.mode === "solo") {
       await rpc("record_arpon_solo_result", {
-        p_session_token: account.token,
+        p_session_token: recordContext.sessionToken,
         p_result_key: result.matchId,
         p_won: result.winners.includes("red"),
       });
-    } else if (session.active && result.ranked) {
+    } else if (recordContext.gameId && result.ranked) {
       await rpc("record_arpon_online_result", {
-        p_game_id: session.gameId,
-        p_player_token: session.token,
-        p_session_token: account.token,
+        p_game_id: recordContext.gameId,
+        p_player_token: recordContext.playerToken,
+        p_session_token: recordContext.sessionToken,
       });
-    } else return;
+    } else {
+      account.pendingResults.delete(result.matchId);
+      return;
+    }
+    account.recordedResults.add(result.matchId);
+    account.pendingResults.delete(result.matchId);
     await refreshAccount();
   } catch {
-    account.recordedResults.delete(result.matchId);
+    if (attempt < 6) {
+      setTimeout(() => recordGameComplete(result, attempt + 1, recordContext), 700 + attempt * 550);
+    } else {
+      account.pendingResults.delete(result.matchId);
+    }
   }
 }
 
@@ -716,6 +739,12 @@ onlineElements.privateTurnLimitInput.addEventListener("input", () => {
 });
 onlineElements.privateWallLimitInput.addEventListener("input", () => {
   onlineElements.privateWallLimitValue.textContent = `${onlineElements.privateWallLimitInput.value} walls`;
+});
+onlineElements.friendBattleTurnLimitInput.addEventListener("input", () => {
+  onlineElements.friendBattleTurnLimitValue.textContent = `${onlineElements.friendBattleTurnLimitInput.value} turns`;
+});
+onlineElements.friendBattleWallLimitInput.addEventListener("input", () => {
+  onlineElements.friendBattleWallLimitValue.textContent = `${onlineElements.friendBattleWallLimitInput.value} walls`;
 });
 onlineElements.onlinePlayerName.addEventListener("change", rememberPlayerName);
 onlineElements.startOnlineRoomButton.addEventListener("click", startPrivateRoom);

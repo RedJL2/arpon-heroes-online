@@ -39,8 +39,8 @@
         </div>
 
         <div class="top-actions">
+          <button class="tool-button audio-toggle" id="muteButton" type="button" title="Mute sound" aria-pressed="false">Sound</button>
           <button class="tool-button" id="rulesButton" type="button" title="Open rules">?</button>
-          <button class="tool-button" id="endTurnButton" type="button" title="End turn">End</button>
           <button class="tool-button danger" id="resetButton" type="button" title="New game">New</button>
         </div>
       </header>
@@ -64,8 +64,6 @@
             <span class="center-die-face" id="centerDiceIcon">D6</span>
             <span id="centerDiceLabel">Roll Movement</span>
           </button>
-          <button class="center-end-button" id="centerEndTurnButton" type="button" hidden>End Turn</button>
-
           <div class="board-frame">
             <div id="board" class="board" aria-label="Arpon Heroes battlefield"></div>
           </div>
@@ -87,6 +85,7 @@
           </div>
         </aside>
       </main>
+      <button class="squad-drawer-toggle" id="squadDrawerButton" type="button" aria-expanded="false">Squads &amp; Cards</button>
     </div>
 
     <div class="modal-backdrop home-backdrop" id="lobbyModal">
@@ -311,6 +310,7 @@
 
     <div class="modal-backdrop move-choice-backdrop" id="moveChoiceModal" hidden>
       <section class="modal move-choice-modal">
+        <button class="modal-corner-close" id="closeMoveChoiceButton" type="button" aria-label="Close movement choice">X</button>
         <p class="eyebrow">Choose movement</p>
         <h2>Split or Finish?</h2>
         <p id="moveChoiceMessage">Keep movement for your other Hero, or use a longer legal route and attack.</p>
@@ -336,6 +336,11 @@
     <div class="dice-result-overlay" id="diceResultOverlay" hidden>
       <span id="diceResultLabel">Movement Roll</span>
       <strong id="diceResultValue">6</strong>
+    </div>
+
+    <div class="turn-ended-overlay" id="turnEndedOverlay" hidden>
+      <span id="turnEndedPlayer">Red Player</span>
+      <strong>Turn Ended</strong>
     </div>
 
     <div class="attack-receipt" id="attackReceipt" hidden aria-live="polite"></div>
@@ -405,6 +410,19 @@
         </div>
         <div class="friend-compose">
           <label class="online-field"><span>Exact username</span><input id="friendUsername" maxlength="18" placeholder="FriendName" /></label>
+          <div class="friendly-battle-settings">
+            <label class="turn-limit-control" for="friendBattleTurnLimitInput">
+              <span>Friendly battle length</span>
+              <strong id="friendBattleTurnLimitValue">24 turns</strong>
+              <input id="friendBattleTurnLimitInput" type="range" min="8" max="80" step="4" value="24" />
+            </label>
+            <label class="turn-limit-control" for="friendBattleWallLimitInput">
+              <span>Friendly battle walls</span>
+              <strong id="friendBattleWallLimitValue">24 walls</strong>
+              <input id="friendBattleWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
+            </label>
+            <label class="ranked-toggle"><input id="friendBattleRankedInput" type="checkbox" /><span>Count this friendly battle toward ranked records</span></label>
+          </div>
           <div class="friend-actions">
             <button class="secondary-action" id="sendFriendRequestButton" type="button">Send Request</button>
             <button class="primary-action" id="sendBattleInviteButton" type="button">Friendly Battle</button>
@@ -433,6 +451,7 @@
       </section>
     </div>
 
+    <script src="./audioManager.js"></script>
     <script src="./app.js"></script>
     <script type="module" src="./online.js"></script>
   </body>
