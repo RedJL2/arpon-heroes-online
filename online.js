@@ -10,13 +10,13 @@ const onlineElements = Object.fromEntries(
     "homeRulesButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
     "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
-    "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput",
+    "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput", "privateTimerInput",
     "accountButton", "accountSummary", "accountModal", "closeAccountButton", "accountForm", "accountUsername", "accountPassword", "accountLoginButton",
     "accountCreateButton", "accountRecord", "accountMessage", "accountLogoutButton", "leaderboardButton", "leaderboardModal",
     "closeLeaderboardButton", "leaderboardList", "leaderboardPreviousButton", "leaderboardNextButton", "leaderboardPageLabel",
     "friendsButton", "friendsModal", "closeFriendsButton", "friendUsername", "friendMessage", "sendFriendRequestButton", "sendFriendMessageButton",
     "sendBattleInviteButton", "friendsMessage", "friendsList", "friendRequestsList", "friendMessagesList",
-    "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleRankedInput",
+    "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleRankedInput", "friendBattleTimerInput",
     "adminButton", "adminModal", "closeAdminButton", "adminStats", "adminMessage", "adminAccountList",
     "passwordChange", "currentPassword", "newPassword", "changePasswordButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
@@ -196,7 +196,7 @@ function renderOnlineRoom(room) {
     onlineElements.onlineCountdown.hidden = true;
     onlineElements.onlineRoomStatus.textContent = isMatchmaking
       ? `${count} player${count === 1 ? "" : "s"} found. The two-minute timer begins when player two joins.`
-      : `${count} of 4 players ready. Share code ${game.code}.`;
+      : `${count} of 4 players ready. Share code ${game.code}. ${game.timer_enabled === false ? "Timers off." : "Timers on."}`;
   }
 
   onlineElements.startOnlineRoomButton.hidden = !(game.mode === "private" && game.is_host && game.status === "waiting");
@@ -238,7 +238,7 @@ async function enterRoom(room) {
   session.revision = Number(room.game.revision || 0);
   session.localTeam = assignLocalTeam(room);
   sessionStorage.setItem("arpon-online-room", JSON.stringify({ gameId: session.gameId }));
-  if (account.token) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
+  if (account.token) await rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   renderOnlineRoom(room);
   startPolling();
   await handleRoomState(room);
@@ -254,6 +254,7 @@ async function createPrivateRoom() {
       p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.privateWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.privateRankedInput?.checked),
+      p_timer_enabled: Boolean(onlineElements.privateTimerInput?.checked),
     });
     showPrivateMessage("Room created.");
     await enterRoom(room);
@@ -368,7 +369,7 @@ async function handleRoomState(room) {
   if (room.game.is_host) {
     onlineElements.lobbyModal.hidden = true;
     onlineElements.onlineRoomModal.hidden = true;
-    window.ArponGame.startOnlineGame(room.players, room.game.mode === "matchmaking" ? null : room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id);
+    window.ArponGame.startOnlineGame(room.players, room.game.mode === "matchmaking" ? null : room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id, room.game.timer_enabled !== false);
   }
 }
 
@@ -454,6 +455,7 @@ function renderAccount() {
   onlineElements.friendsButton.hidden = !profile;
   onlineElements.adminButton.hidden = !profile?.is_admin;
   onlineElements.accountRecord.innerHTML = profile ? `
+    <div><span>Coins</span><strong>${profile.is_admin ? "∞" : profile.coins || 0}</strong></div>
     <div><span>Ranked</span><strong>${profile.ranked_wins} W · ${profile.ranked_losses} L</strong></div>
     <div><span>Robot</span><strong>${profile.solo_wins} W · ${profile.solo_losses} L</strong></div>
     <div><span>Ranked win rate</span><strong>${profile.ranked_games ? Math.round((profile.ranked_wins / profile.ranked_games) * 100) : 0}%</strong></div>
@@ -462,6 +464,7 @@ function renderAccount() {
     onlineElements.onlinePlayerName.value = profile.username;
     setAccountMessage("Your record is saved after ranked and robot battles.");
   }
+  window.ArponCollection?.setProfile?.(profile, account.token);
 }
 
 async function refreshAccount() {
@@ -623,6 +626,7 @@ async function sendFriendlyBattleInvite() {
       p_turn_limit: Number(onlineElements.friendBattleTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.friendBattleWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.friendBattleRankedInput?.checked),
+      p_timer_enabled: Boolean(onlineElements.friendBattleTimerInput?.checked),
     });
     await rpc("link_arpon_player_account", { p_game_id: room.game.id, p_player_token: session.token, p_session_token: account.token });
     await rpc("send_arpon_battle_invite", { p_session_token: account.token, p_username: username, p_game_id: room.game.id });
@@ -800,6 +804,7 @@ window.ArponOnline = {
   getLocalTeam: () => session.localTeam,
   isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
+  continueLocally: () => disconnectOnline(),
   onGameRendered: schedulePush,
   onGameComplete: recordGameComplete,
   onPlayerForfeit: (team) => {

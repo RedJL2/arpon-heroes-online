@@ -20,7 +20,7 @@ const armor = (id, family, name, hp, image, ability, text, effects = {}) => ({ i
 const weapon = (id, family, name, dp, image, ability, text, effects = {}) => ({ id, kind: "weapon", family, name, dp, image: cardAsset(image), ability, text, effects });
 
 // Official Set A card pool and revised abilities from DATABASE.xlsx.
-const cards = [
+const setACards = [
   hero("flamar_h", "Flamar", "Flamar", "1027F644-3ED5-4DD6-9C79-07EBF1121186.png", "Flaming Boost", "Flamar's Sword gets +300 DP instead of the normal +100 matching bonus.", { flamarSwordBonus: true }),
   armor("flamar_a", "Flamar", "Blazen Armor", 2200, "6C97F4C7-1CC0-4703-9CFD-5057FBE3EBF9.png", "Blaze Aura", "Enemy attacks do 200 less DP.", { incomingReduce: 200 }),
   weapon("flamar_w", "Flamar", "Flamar's Sword", 400, "AF6CCC9F-A223-4117-AAC5-E7B3FFEF5AF7.png", "Flaming Slash", "Cross; Range 6; +100 DP at range 1-3.", { pattern: "cross", range: 6, closeBonus: { max: 3, amount: 100 } }),
@@ -70,6 +70,12 @@ const cards = [
   weapon("okar_w", "Okar", "Lime Sword", 300, "B26DDE1E-FE5E-4907-8321-B70039FBB7DD.png", "Lime Slash", "Cross; Range 5; +200 DP against enemies above 1600 HP.", { pattern: "cross", range: 5, targetHpAboveBonus: { min: 1601, amount: 200 } }),
 ];
 
+const cards = [...setACards, ...(window.ArponExtraCards || [])].map((card) => ({
+  ...card,
+  sets: window.ArponCardSets?.[card.id] || ["A"],
+  tokenImage: window.ArponTokenArt?.[card.id] || card.tokenImage,
+}));
+
 const cardsById = Object.fromEntries(cards.map((card) => [card.id, card]));
 const state = {
   mode: "local",
@@ -77,7 +83,12 @@ const state = {
   ranked: false,
   robotTeams: [],
   timedRobotTeams: [],
+  disconnectedTeams: [],
+  forfeitHpSnapshots: {},
+  playerDecks: {},
+  playerCosmetics: {},
   timeoutStrikes: {},
+  timerEnabled: true,
   timer: null,
   phase: "lobby",
   playerCount: 4,
@@ -115,6 +126,7 @@ const state = {
   retreatPenalties: {},
   retreatSteps: 0,
   pendingAttack: null,
+  attackAnimation: null,
   pendingRoll: null,
   sharedDiceResult: null,
   receiptTimer: null,
@@ -147,6 +159,7 @@ const deviceState = {
   resolvedAbilityRollKey: null,
   dismissedTurnEndNoticeToken: null,
   turnEndNoticeTimer: null,
+  disconnectPromptShown: false,
 };
 
 const elements = Object.fromEntries(
@@ -204,7 +217,12 @@ function resetToLobby() {
   state.ranked = false;
   state.robotTeams = [];
   state.timedRobotTeams = [];
+  state.disconnectedTeams = [];
+  state.forfeitHpSnapshots = {};
+  state.playerDecks = {};
+  state.playerCosmetics = {};
   state.timeoutStrikes = {};
+  state.timerEnabled = true;
   state.timer = null;
   state.phase = "lobby";
   state.playerCount = 4;
@@ -230,6 +248,7 @@ function resetToLobby() {
   state.retreatPenalties = {};
   state.retreatSteps = 0;
   state.pendingAttack = null;
+  state.attackAnimation = null;
   state.pendingRoll = null;
   state.sharedDiceResult = null;
   state.receiptContent = "";
@@ -256,6 +275,7 @@ function resetToLobby() {
   deviceState.resolvedAbilityRollKey = null;
   deviceState.dismissedTurnEndNoticeToken = null;
   deviceState.turnEndNoticeTimer = null;
+  deviceState.disconnectPromptShown = false;
   deviceState.lastHpByLoadout = {};
   document.body.classList.remove("squad-drawer-open");
   closeSetPreview();
@@ -322,6 +342,12 @@ function toggleLobbyTeam(team) {
 
 function startGame() {
   if (state.playerTeams.length !== state.playerCount) return;
+  const signedInDeck = window.ArponCollection?.activeDeckIds?.() || [];
+  const signedInCosmetics = window.ArponCollection?.cosmetics?.() || {};
+  activeTeams().forEach((team) => {
+    if (!state.playerDecks[team]?.length) state.playerDecks[team] = signedInDeck.length ? [...signedInDeck] : [...(window.ArponSetACardIds || setACards.map((card) => card.id))];
+    if (!state.playerCosmetics[team]) state.playerCosmetics[team] = { ...signedInCosmetics };
+  });
   state.phase = "draft";
   state.matchId ||= crypto.randomUUID();
   state.setupTeamIndex = 0;
@@ -358,23 +384,23 @@ function startGame() {
   dealDraftHands();
   elements.lobbyModal.hidden = true;
   logEvent("Best of 3 begins. Each player chooses two cards from each three-card hand.", "#30343b");
-  if (!window.ArponOnline?.isOnline?.() && state.mode !== "solo") showPass(activeTeams()[0], "Your private Set A deal is ready.");
+  if (!window.ArponOnline?.isOnline?.() && state.mode !== "solo") showPass(activeTeams()[0], "Your private active-deck deal is ready.");
   render();
 }
 
 function dealDraftHands() {
-  const pools = {
-    hero: shuffle(cards.filter((card) => card.kind === "hero")),
-    armor: shuffle(cards.filter((card) => card.kind === "armor")),
-    weapon: shuffle(cards.filter((card) => card.kind === "weapon")),
-  };
   state.draftHands = {};
   state.draftSelections = {};
   state.draftSwaps = {};
   state.draftLocked = {};
   state.wandeltChoices = {};
-  activeTeams().forEach((team, playerIndex) => {
-    state.draftHands[team] = Object.fromEntries(Object.keys(pools).map((kind) => [kind, pools[kind].slice(playerIndex * 3, playerIndex * 3 + 3).map((card) => card.id)]));
+  activeTeams().forEach((team) => {
+    const allowedIds = state.playerDecks?.[team]?.length ? new Set(state.playerDecks[team]) : new Set(window.ArponSetACardIds || setACards.map((card) => card.id));
+    const pool = cards.filter((card) => allowedIds.has(card.id));
+    state.draftHands[team] = Object.fromEntries(["hero", "armor", "weapon"].map((kind) => [
+      kind,
+      shuffle(pool.filter((card) => card.kind === kind)).slice(0, 3).map((card) => card.id),
+    ]));
     state.draftSelections[team] = { hero: [], armor: [], weapon: [] };
     state.draftSwaps[team] = { armor: false, weapon: false };
     state.draftLocked[team] = false;
@@ -386,6 +412,7 @@ function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit
   state.mode = "solo";
   state.matchId = crypto.randomUUID();
   state.ranked = false;
+  state.timerEnabled = false;
   state.robotTeams = robotTeams;
   state.timedRobotTeams = [];
   state.playerTeams = ["red", ...robotTeams];
@@ -544,6 +571,10 @@ function timerDurationForKey(key) {
 
 function ensureGameTimer() {
   if (!deviceState.timerInterval) deviceState.timerInterval = setInterval(tickGameTimer, 250);
+  if (!state.timerEnabled) {
+    state.timer = null;
+    return;
+  }
   const key = phaseTimerKey();
   if (!key) {
     if (window.ArponOnline?.isHost?.()) state.timer = null;
@@ -556,7 +587,7 @@ function ensureGameTimer() {
 }
 
 function renderTimer() {
-  const active = state.mode === "online" && state.timer?.deadline && state.phase !== "complete";
+  const active = state.timerEnabled && state.mode === "online" && state.timer?.deadline && state.phase !== "complete";
   elements.timerBlock.hidden = !active;
   if (active) updateTimerLabel();
 }
@@ -569,6 +600,7 @@ function updateTimerLabel() {
 }
 
 function tickGameTimer() {
+  if (!state.timerEnabled) return;
   updateTimerLabel();
   if (!state.timer?.deadline || Date.now() < Number(state.timer.deadline) || !window.ArponOnline?.isHost?.()) return;
   if (deviceState.handledTimerKey === state.timer.key) return;
@@ -647,6 +679,8 @@ function handleBattleTimeout() {
   const team = state.activeTeam;
   state.timeoutStrikes[team] = (state.timeoutStrikes[team] || 0) + 1;
   if (state.timeoutStrikes[team] >= 2) {
+    state.forfeitHpSnapshots[team] = Object.fromEntries(teamLoadouts(team).map((loadout) => [loadout.id, loadout.currentHp]));
+    if (!state.disconnectedTeams.includes(team)) state.disconnectedTeams.push(team);
     teamLoadouts(team).forEach((loadout) => {
       loadout.currentHp = 0;
       loadout.ko = true;
@@ -839,7 +873,7 @@ function confirmDraft() {
     state.setupTeamIndex += 1;
     const next = activeTeams()[state.setupTeamIndex];
     state.activeTeam = next;
-    showPass(next, "Your private Set A deal is ready.");
+    showPass(next, "Your private active-deck deal is ready.");
   } else if (allDraftsLocked()) finalizeDraftsAndBeginWalls();
   render();
 }
@@ -873,6 +907,7 @@ function createLoadout(team, setNumber, heroCard, armorCard, weaponCard) {
     hero: heroCard,
     armor: armorCard,
     weapon: weaponCard,
+    cosmeticLevels: Object.fromEntries([heroCard, armorCard, weaponCard].map((card) => [card.id, Number(state.playerCosmetics?.[team]?.[card.id] || 0)])),
     chosenPattern: weaponCard.id === "zanion_w" ? state.wandeltChoices[`${team}_${setNumber}`] || "cross" : null,
     maxHp,
     currentHp: maxHp,
@@ -994,6 +1029,14 @@ function renderPawns(highlights) {
     pawn.style.setProperty("--y", loadout.y);
     pawn.style.setProperty("--team-color", teams[loadout.team].color);
     pawn.style.setProperty("--hp", `${hpPercent}%`);
+    const animation = state.attackAnimation;
+    if (animation?.attackerId === loadout.id) {
+      const target = getLoadout(animation.targetId);
+      pawn.classList.add("attack-lunge");
+      pawn.style.setProperty("--attack-x", `${((target?.x || loadout.x) - loadout.x) * 125}%`);
+      pawn.style.setProperty("--attack-y", `${((target?.y || loadout.y) - loadout.y) * 125}%`);
+    }
+    if (animation?.targetId === loadout.id) pawn.classList.add("attack-hit");
     pawn.classList.toggle("selected", loadout.id === deviceState.selectedSetId);
     pawn.classList.toggle("targetable", selected && selected.team !== loadout.team && highlights.attack.has(posKey(loadout.x, loadout.y)));
     pawn.classList.toggle("inactive", loadout.team !== state.activeTeam);
@@ -1001,7 +1044,7 @@ function renderPawns(highlights) {
     pawn.title = `${loadout.name}, ${displayName(loadout.team)}, Hero ${loadout.setNumber}`;
     pawn.innerHTML = `
       <span class="pawn-attack">${attackMark}<b>${loadout.weapon.effects.range}</b></span>
-      <span class="pawn-portrait"><img src="${loadout.hero.image}" alt="" /></span>
+      <span class="pawn-portrait cosmetic-tier-${loadout.cosmeticLevels?.[loadout.hero.id] || 0}"><img src="${loadout.hero.tokenImage || loadout.hero.image}" alt="" /></span>
       <span class="pawn-number">${loadout.setNumber}</span>`;
     pawn.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1024,7 +1067,7 @@ function loadoutChip(loadout) {
   const currentHp = Math.max(0, loadout.currentHp);
   return `<button class="hero-chip ${loadout.id === deviceState.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%;--team-color:${teams[loadout.team].color}" data-loadout-id="${loadout.id}" type="button" aria-label="View ${loadout.name}, Hero ${loadout.setNumber}, ${currentHp} of ${loadout.maxHp} HP">
     <span class="hero-number">${loadout.setNumber}</span>
-    <span class="chip-portrait"><img src="${loadout.hero.image}" alt="" /></span>
+    <span class="chip-portrait cosmetic-tier-${loadout.cosmeticLevels?.[loadout.hero.id] || 0}"><img src="${loadout.hero.tokenImage || loadout.hero.image}" alt="" /></span>
     <span class="chip-meta">
       <span class="chip-title"><strong>${loadout.name}</strong><span class="chip-health-number">${currentHp}<small> / ${loadout.maxHp} HP</small></span></span>
       <i class="chip-health-bar"><b></b></i>
@@ -1090,7 +1133,7 @@ function renderSetPreview() {
   elements.setPreviewModal.style.setProperty("--preview-color", teams[loadout.team].color);
   elements.setPreviewTitle.textContent = `${displayName(loadout.team)} · Hero ${loadout.setNumber}: ${loadout.name}`;
   elements.setPreviewCards.innerHTML = [loadout.hero, loadout.armor, loadout.weapon]
-    .map((card) => `<article><img src="${card.image}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
+    .map((card) => `<article class="cosmetic-tier-${loadout.cosmeticLevels?.[card.id] || 0}"><img src="${card.image}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
     .join("");
   elements.setPreviewModal.hidden = false;
 }
@@ -1105,7 +1148,7 @@ function renderSelectedPanel() {
   const armorMatch = loadout.hero.family === loadout.armor.family;
   const weaponMatch = loadout.hero.family === loadout.weapon.family;
   elements.selectedCard.innerHTML = `
-    <div class="selected-head"><div class="card-media"><img src="${loadout.hero.image}" alt="${loadout.name}" />${cardZoomButton(loadout.hero)}</div><div><span class="player-label">${displayName(loadout.team)} · Hero ${loadout.setNumber}</span><h2>${loadout.name}</h2><div class="stat-row"><strong>${Math.max(0, loadout.currentHp)} HP</strong><strong>${baseAttack(loadout)} DP</strong><strong>${titleCase(weaponPattern(loadout))} ${loadout.weapon.effects.range}</strong>${armorMatch ? "<strong>Armor Match +100 HP</strong>" : ""}${weaponMatch ? `<strong>Weapon Match +${matchingWeaponBonus(loadout)} DP</strong>` : ""}</div></div></div>
+    <div class="selected-head"><div class="card-media cosmetic-tier-${loadout.cosmeticLevels?.[loadout.hero.id] || 0}"><img src="${loadout.hero.image}" alt="${loadout.name}" />${cardZoomButton(loadout.hero)}</div><div><span class="player-label">${displayName(loadout.team)} · Hero ${loadout.setNumber}</span><h2>${loadout.name}</h2><div class="stat-row"><strong>${Math.max(0, loadout.currentHp)} HP</strong><strong>${baseAttack(loadout)} DP</strong><strong>${titleCase(weaponPattern(loadout))} ${loadout.weapon.effects.range}</strong>${armorMatch ? "<strong>Armor Match +100 HP</strong>" : ""}${weaponMatch ? `<strong>Weapon Match +${matchingWeaponBonus(loadout)} DP</strong>` : ""}</div></div></div>
     <p><strong>${loadout.hero.ability}:</strong> ${loadout.hero.text}</p>`;
 }
 
@@ -1117,7 +1160,7 @@ function renderCards() {
   }
   elements.cardStack.innerHTML = [loadout.hero, loadout.armor, loadout.weapon].map((card) => {
     const stat = card.kind === "armor" ? `${card.hp} HP` : card.kind === "weapon" ? `${card.dp} DP` : card.family;
-    return `<article class="loadout-card"><div class="card-media"><img src="${card.image}" alt="${card.name}" />${cardZoomButton(card)}</div><div><span>${titleCase(card.kind)} · ${stat}</span><h3>${card.name}</h3><p><strong>${card.ability}:</strong> ${card.text}</p></div></article>`;
+    return `<article class="loadout-card cosmetic-tier-${loadout.cosmeticLevels?.[card.id] || 0}"><div class="card-media"><img src="${card.image}" alt="${card.name}" />${cardZoomButton(card)}</div><div><span>${titleCase(card.kind)} · ${stat}</span><h3>${card.name}</h3><p><strong>${card.ability}:</strong> ${card.text}</p></div></article>`;
   }).join("");
 }
 
@@ -1401,9 +1444,10 @@ function continueAttackAfterAttackRoll(attackerId, targetId, attackRoll) {
   if (!attacker || !target || attacker.ko || target.ko) return finalizeAttackPair(attacker, target, "Attack could not be completed.");
   const actualRange = attackRangeAgainst(attacker, target, attackRoll);
   if (lineDistance(attacker, target) > actualRange) return finalizeAttackPair(attacker, target, `${target.name} was outside the final range.`);
-  const dodge = tryDodge(target, attacker, actualRange);
+  const dodge = target.armor.effects.dodgeBackOnRoll ? { escaped: false } : tryDodge(target, attacker, actualRange);
   if (dodge.escaped) return finalizeAttackPair(attacker, target, `${target.name} used ${target.armor.ability} and escaped.`);
-  const defenseRule = target.armor.effects.reduceOnRoll || target.armor.effects.enemyRetreatPenaltyOnRoll;
+  const defenseRule = target.armor.effects.reduceOnRoll || target.armor.effects.enemyRetreatPenaltyOnRoll
+    || target.armor.effects.blockAllOnRoll || target.armor.effects.dodgeBackOnRoll;
   if (defenseRule) {
     requestAbilityRoll(
       target.team,
@@ -1418,6 +1462,19 @@ function applyResolvedAttack(attackerId, targetId, attackRoll, defenseRoll) {
   const attacker = getLoadout(attackerId);
   const target = getLoadout(targetId);
   if (!attacker || !target) return;
+  const dodge = tryDodge(target, attacker, attackRangeAgainst(attacker, target, attackRoll), defenseRoll);
+  if (dodge.escaped) return finalizeAttackPair(attacker, target, `${target.name} used ${target.armor.ability} and escaped.`);
+  state.attackAnimation = { attackerId, targetId, token: crypto.randomUUID() };
+  window.ArponAudio?.play("attack");
+  render();
+  setTimeout(() => resolveAttackDamage(attackerId, targetId, attackRoll, defenseRoll), 330);
+}
+
+function resolveAttackDamage(attackerId, targetId, attackRoll, defenseRoll) {
+  const attacker = getLoadout(attackerId);
+  const target = getLoadout(targetId);
+  if (!attacker || !target) return;
+  state.attackAnimation = null;
   const distance = lineDistance(attacker, target);
   const report = calculateDamage(attacker, target, attackRoll, defenseRoll, distance);
   target.currentHp = Math.max(0, target.currentHp - report.damage);
@@ -1524,8 +1581,15 @@ function calculateDamage(attacker, target, attackRoll, defenseRoll, distance) {
   let reduction = (target.hero.effects.incomingReduce || 0) + (target.armor.effects.incomingReduce || 0);
   const threshold = target.armor.effects.reduceIfAttackAbove;
   if (threshold && damage > threshold.min) reduction += threshold.amount;
+  const distanceThreshold = target.armor.effects.reduceIfDistanceAbove;
+  if (distanceThreshold && distance >= distanceThreshold.min) reduction += distanceThreshold.amount;
   const rollDefense = target.armor.effects.reduceOnRoll;
   if (rollDefense && rollMatches(defenseRoll, rollDefense)) reduction += rollDefense.amount;
+  const blockAll = target.armor.effects.blockAllOnRoll;
+  if (blockAll && rollMatches(defenseRoll, blockAll)) {
+    reduction += damage;
+    notes.push(`${target.armor.ability} blocked all damage`);
+  }
   const reflected = Math.min(damage, target.armor.effects.reflect || 0);
   if (reflected) {
     reduction += reflected;
@@ -1548,10 +1612,17 @@ function addWeaponBonuses(effects, target, distance, roll, notes, add) {
     add(effects.rollBonus.amount);
     notes.push(`attack roll +${effects.rollBonus.amount}`);
   }
+  (effects.distanceBands || []).forEach((band) => {
+    if (distance >= band.min && distance <= band.max) {
+      add(band.amount);
+      notes.push(`distance bonus +${band.amount}`);
+    }
+  });
 }
 
-function tryDodge(target, attacker, actualRange) {
-  const steps = target.armor.effects.dodgeBack || 0;
+function tryDodge(target, attacker, actualRange, defenseRoll = null) {
+  const rolledDodge = target.armor.effects.dodgeBackOnRoll;
+  const steps = target.armor.effects.dodgeBack || (rolledDodge && rollMatches(defenseRoll, rolledDodge) ? rolledDodge.amount : 0);
   if (!steps) return { escaped: false };
   const dx = Math.sign(target.x - attacker.x);
   const dy = Math.sign(target.y - attacker.y);
@@ -1805,6 +1876,8 @@ function attackRollMessage(weaponCard, rule) {
 }
 
 function defenseRollMessage(armorCard, rule) {
+  if (armorCard.effects.blockAllOnRoll) return `Need ${rollRequirementText(rule)} to block all damage.`;
+  if (armorCard.effects.dodgeBackOnRoll) return `Need ${rollRequirementText(rule)} to step ${rule.amount} space${rule.amount === 1 ? "" : "s"} back before damage.`;
   if (armorCard.effects.enemyRetreatPenaltyOnRoll) return `Need ${rollRequirementText(rule)} to reduce the attacker's retreat by ${rule.amount}.`;
   return `Need ${rollRequirementText(rule)} to reduce this attack by ${rule.amount} DP.`;
 }
@@ -1813,6 +1886,7 @@ function rollRequirementText(rule) {
   if (rule.values) return rule.values.join(" or ");
   if (rule.odd) return "an odd number";
   if (rule.even) return "an even number";
+  if (rule.min && rule.max) return `${rule.min}-${rule.max}`;
   if (rule.min) return `${rule.min}-6`;
   if (rule.max) return `1-${rule.max}`;
   return "the required result";
@@ -2312,6 +2386,11 @@ function replaceGameState(snapshot) {
   Object.assign(state, snapshot, {
     receiptTimer: null,
   });
+  const localTeam = window.ArponOnline?.getLocalTeam?.();
+  if (localTeam && state.disconnectedTeams?.includes(localTeam) && !deviceState.disconnectPromptShown) {
+    deviceState.disconnectPromptShown = true;
+    document.querySelector("#robotContinuationModal").hidden = false;
+  }
   deviceState.selectedSetId = selectedSetId;
   state.loadouts = (state.loadouts || []).map((loadout) => ({
     ...loadout,
@@ -2327,22 +2406,58 @@ function replaceGameState(snapshot) {
   render();
 }
 
-function startOnlineGame(players, turnLimit = null, wallLimit = DEFAULT_WALL_LIMIT, ranked = false, matchId = null) {
+function startOnlineGame(players, turnLimit = null, wallLimit = DEFAULT_WALL_LIMIT, ranked = false, matchId = null, timerEnabled = true) {
   const playerTeams = teamsForPlayerCount(players.length);
   state.playerCount = players.length;
   state.playerTeams = playerTeams;
   state.playerNames = Object.fromEntries(teamOrder.map((team) => [team, teams[team].name]));
+  state.playerDecks = {};
+  state.playerCosmetics = {};
   players.forEach((player, index) => {
     state.playerNames[playerTeams[index]] = player.display_name || `Player ${index + 1}`;
+    if (Array.isArray(player.active_deck) && player.active_deck.length) state.playerDecks[playerTeams[index]] = player.active_deck;
+    if (player.cosmetics && typeof player.cosmetics === "object") state.playerCosmetics[playerTeams[index]] = player.cosmetics;
   });
   state.mode = "online";
   state.matchId = matchId || crypto.randomUUID();
   state.ranked = Boolean(ranked);
+  state.timerEnabled = Boolean(timerEnabled);
   state.robotTeams = [];
   state.turnLimit = Number(turnLimit) || defaultTurnLimit(players.length);
   state.wallLimit = Number.isFinite(Number(wallLimit)) ? Number(wallLimit) : DEFAULT_WALL_LIMIT;
   deviceState.turnLimitCustomized = false;
   startGame();
+}
+
+function continueDisconnectedBattle() {
+  const localTeam = window.ArponOnline?.getLocalTeam?.();
+  if (!localTeam) return;
+  Object.entries(state.forfeitHpSnapshots?.[localTeam] || {}).forEach(([id, hp]) => {
+    const loadout = getLoadout(id);
+    if (loadout) {
+      loadout.currentHp = hp;
+      loadout.ko = hp <= 0;
+    }
+  });
+  state.mode = "solo-continuation";
+  state.matchId = crypto.randomUUID();
+  state.ranked = false;
+  state.timerEnabled = false;
+  state.timer = null;
+  state.disconnectedTeams = [];
+  state.forfeitHpSnapshots = {};
+  state.victory = null;
+  state.phase = "battleRoll";
+  state.activeTeam = localTeam;
+  state.robotTeams = activeTeams().filter((team) => team !== localTeam);
+  state.playerNames[localTeam] = "You";
+  state.robotTeams.forEach((team, index) => { state.playerNames[team] = `Robot ${index + 1}`; });
+  state.hasRolled = false;
+  state.dice = null;
+  state.movementLeft = 0;
+  document.querySelector("#robotContinuationModal").hidden = true;
+  window.ArponOnline?.continueLocally?.();
+  render();
 }
 
 function reconcileOnlineState() {
@@ -2429,6 +2544,8 @@ elements.startSoloButton.addEventListener("click", () => {
   startSoloGame(enemyCount, Number(elements.soloWallLimitInput.value), Number(elements.soloTurnLimitInput.value));
 });
 elements.homeButton.addEventListener("click", resetToLobby);
+document.querySelector("#continueRobotButton")?.addEventListener("click", continueDisconnectedBattle);
+document.querySelector("#leaveDisconnectedButton")?.addEventListener("click", resetToLobby);
 elements.passButton.addEventListener("click", () => {
   elements.passModal.hidden = true;
 });

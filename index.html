@@ -93,13 +93,17 @@
         <header class="home-header">
           <img src="./assets/logo.png" alt="Arpon Heroes" />
           <div>
-            <p class="eyebrow">Classic Starter Set A</p>
+            <p class="eyebrow">Online Fortress Arena</p>
             <h1 id="lobbyTitle">Choose Your Battle</h1>
             <p>Draft two Heroes, fortify the arena, and outfight every rival squad.</p>
           </div>
           <button class="guide-action" id="homeRulesButton" type="button">
             <strong>How to Play</strong>
             <span>Rules, setup, movement, and combat</span>
+          </button>
+          <button class="guide-action tutorial-action" id="tutorialButton" type="button">
+            <strong>Guided Tutorial</strong>
+            <span>Tour the website step by step</span>
           </button>
         </header>
 
@@ -134,6 +138,9 @@
           <div class="account-actions">
             <button class="back-action" id="accountButton" type="button">Account &amp; Record</button>
             <span id="accountSummary">Playing as guest</span>
+            <span class="coin-badge" id="coinBadge">0 Coins</span>
+            <button class="back-action collection-action" id="deckButton" type="button">Deck</button>
+            <button class="back-action collection-action" id="shopButton" type="button">Shop</button>
             <button class="back-action" id="friendsButton" type="button" hidden>Friends</button>
             <button class="back-action" id="leaderboardButton" type="button">Leaderboard</button>
             <button class="back-action admin-action" id="adminButton" type="button" hidden>Creator View</button>
@@ -167,7 +174,7 @@
             <small>Players take turns placing four walls at a time.</small>
           </label>
           <div class="lobby-players" id="lobbyPlayers"></div>
-          <button class="primary-action large" id="startGameButton" type="button">Deal Set A Cards</button>
+          <button class="primary-action large" id="startGameButton" type="button">Deal Active Deck Cards</button>
         </section>
 
         <section class="home-panel setup-mode-panel" id="soloSetupPanel" hidden>
@@ -215,6 +222,7 @@
               <input id="privateWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
             </label>
             <label class="ranked-toggle"><input id="privateRankedInput" type="checkbox" /><span>Count this game toward account records and leaderboard</span></label>
+            <label class="ranked-toggle"><input id="privateTimerInput" type="checkbox" checked /><span>Use turn timers</span></label>
           </div>
           <div class="private-actions">
             <button class="online-choice" id="createRoomButton" type="button">
@@ -422,6 +430,7 @@
               <input id="friendBattleWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
             </label>
             <label class="ranked-toggle"><input id="friendBattleRankedInput" type="checkbox" /><span>Count this friendly battle toward ranked records</span></label>
+            <label class="ranked-toggle"><input id="friendBattleTimerInput" type="checkbox" checked /><span>Use turn timers</span></label>
           </div>
           <div class="friend-actions">
             <button class="secondary-action" id="sendFriendRequestButton" type="button">Send Request</button>
@@ -451,8 +460,77 @@
       </section>
     </div>
 
+    <div class="modal-backdrop collection-backdrop" id="deckModal" hidden>
+      <section class="collection-page">
+        <header class="collection-header">
+          <div><p class="eyebrow">Your playable card pool</p><h2>Active Deck</h2><p>Exactly 8 different Heroes, 8 Armors, and 8 Weapons. Only these cards enter your game drafts.</p></div>
+          <div><span class="coin-badge" id="deckCoinBadge">0 Coins</span><button class="tool-button" id="closeDeckButton" type="button">Close</button></div>
+        </header>
+        <p class="collection-message" id="deckMessage">Click an active card, then click an extra card of the same type to swap them.</p>
+        <div class="collection-columns active-deck" id="activeDeckGrid"></div>
+        <div class="collection-divider"><strong>Owned Extras</strong><span>New pack cards and unused starter cards</span></div>
+        <div class="collection-columns" id="ownedExtrasGrid"></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop collection-backdrop" id="shopModal" hidden>
+      <section class="collection-page shop-page">
+        <header class="collection-header">
+          <div><p class="eyebrow">Fortress supply vault</p><h2>Extension Shop</h2><p>Win ranked battles to earn 2 coins. Packs contain Set A and Set B cards.</p></div>
+          <div><span class="coin-badge" id="shopCoinBadge">0 Coins</span><button class="tool-button" id="closeShopButton" type="button">Close</button></div>
+        </header>
+        <div class="pack-shelf">
+          <article class="pack-offer standard-pack">
+            <div class="pixel-pack pack-standard-art"><span>STANDARD</span><strong>5</strong><small>EXTENSION</small></div>
+            <h3>Standard Extension Pack</h3><p>Five cards. New discoveries and useful duplicates that build cosmetic upgrade progress.</p>
+            <button class="primary-action buy-pack-button" data-buy-pack="standard" type="button">Buy for 4 Coins</button>
+          </article>
+          <article class="pack-offer novelty-pack">
+            <div class="pixel-pack pack-novelty-art"><span>NOVELTY</span><strong>3</strong><small>NEW CARDS</small></div>
+            <h3>Novelty Extension Pack</h3><p>Three guaranteed cards you do not own yet. Best when you want to expand the deck quickly.</p>
+            <button class="primary-action buy-pack-button" data-buy-pack="novelty" type="button">Buy for 5 Coins</button>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop pack-opening-backdrop" id="packOpeningModal" hidden>
+      <section class="pack-opening-stage">
+        <button class="tool-button pack-close" id="closePackOpeningButton" type="button" hidden>Done</button>
+        <p class="eyebrow" id="packOpeningEyebrow">Drag across the top to open</p>
+        <div class="opening-pack" id="openingPack"><div class="pack-rip-line"></div><span>Drag to rip</span></div>
+        <div class="reveal-stack" id="revealStack"></div>
+        <div class="pack-summary" id="packSummary" hidden></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="upgradeModal" hidden>
+      <section class="modal upgrade-modal">
+        <p class="eyebrow">Cosmetic evolution</p><h2>Upgrade This Card?</h2>
+        <div class="upgrade-comparison" id="upgradeComparison"></div>
+        <div class="move-choice-actions"><button class="secondary-action large" id="cancelUpgradeButton" type="button">Not Yet</button><button class="primary-action large" id="confirmUpgradeButton" type="button">Upgrade</button></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop tutorial-backdrop" id="tutorialModal" hidden>
+      <section class="tutorial-modal">
+        <div class="tutorial-visual" id="tutorialVisual"></div>
+        <div class="tutorial-copy"><p class="eyebrow" id="tutorialStepLabel">Step 1 of 8</p><h2 id="tutorialTitle">Welcome to Arpon Heroes</h2><p id="tutorialText"></p></div>
+        <div class="tutorial-controls"><button class="secondary-action" id="tutorialBackButton" type="button">Back</button><button class="back-action" id="tutorialCloseButton" type="button">Close</button><button class="primary-action" id="tutorialNextButton" type="button">Next</button></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="robotContinuationModal" hidden>
+      <section class="modal">
+        <p class="eyebrow">Online battle ended</p><h2>Continue Against Robots?</h2><p>Your online result is already final, but you can keep playing this exact board locally against robot-controlled rivals.</p>
+        <div class="move-choice-actions"><button class="secondary-action large" id="leaveDisconnectedButton" type="button">Return Home</button><button class="primary-action large" id="continueRobotButton" type="button">Continue Battle</button></div>
+      </section>
+    </div>
+
     <script src="./audioManager.js"></script>
+    <script src="./cardExpansion.js"></script>
     <script src="./app.js"></script>
+    <script src="./collection.js"></script>
     <script type="module" src="./online.js"></script>
   </body>
 </html>
