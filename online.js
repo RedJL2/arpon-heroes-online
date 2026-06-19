@@ -132,10 +132,21 @@ function showPrivateMessage(message, error = false) {
 
 function setupErrorMessage(error) {
   const raw = String(error?.message || error || "");
+  if (/create_arpon_private_room_v2/i.test(raw)) {
+    return "Private room backend needs the v2 SQL fix. Run supabase-private-room-v2-fix.sql in Supabase SQL Editor once.";
+  }
+  if (/could not choose the best candidate function/i.test(raw) && /create_arpon_private_room/i.test(raw)) {
+    return "Supabase has duplicate private-room functions. Run supabase-private-room-v2-fix.sql once, then try again.";
+  }
   if (/function .* does not exist|schema cache|not found/i.test(raw)) {
     return "Online setup is not installed yet. Run supabase-setup.sql in the Supabase SQL Editor, then try again.";
   }
   return raw || "Could not connect to the online room.";
+}
+
+function looksLikeMissingRpcOverload(error) {
+  const raw = String(error?.message || error || "");
+  return /schema cache|could not find|does not exist|not found|p_timer_enabled/i.test(raw);
 }
 
 function setOnlineBusy(message) {
@@ -249,17 +260,40 @@ async function createPrivateRoom() {
   rememberPlayerName();
   showPrivateMessage("Creating room...");
   try {
-    const room = await rpc("create_arpon_private_room", {
+    const room = await createPrivateRoomRpc({
       p_player_token: session.token,
       p_display_name: playerName(),
       p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.privateWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.privateRankedInput?.checked),
+      p_timer_enabled: Boolean(onlineElements.privateTimerEnabledInput?.checked ?? true),
     });
     showPrivateMessage("Room created.");
     await enterRoom(room);
   } catch (error) {
     showPrivateMessage(setupErrorMessage(error), true);
+  }
+}
+
+async function createPrivateRoomRpc(params) {
+  const baseParams = {
+    p_player_token: params.p_player_token,
+    p_display_name: params.p_display_name,
+    p_turn_limit: params.p_turn_limit,
+    p_wall_limit: params.p_wall_limit,
+    p_ranked: params.p_ranked,
+  };
+
+  try {
+    return await rpc("create_arpon_private_room", { ...baseParams, p_timer_enabled: params.p_timer_enabled });
+  } catch (firstError) {
+    if (!looksLikeMissingRpcOverload(firstError)) throw firstError;
+    try {
+      return await rpc("create_arpon_private_room_v2", baseParams);
+    } catch (secondError) {
+      if (!looksLikeMissingRpcOverload(secondError)) throw secondError;
+      return rpc("create_arpon_private_room", baseParams);
+    }
   }
 }
 
@@ -619,12 +653,13 @@ async function sendFriendlyBattleInvite() {
   rememberPlayerName();
   setFriendsMessage("Creating friendly battle...");
   try {
-    const room = await rpc("create_arpon_private_room", {
+    const room = await createPrivateRoomRpc({
       p_player_token: session.token,
       p_display_name: playerName(),
       p_turn_limit: Number(onlineElements.friendBattleTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.friendBattleWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.friendBattleRankedInput?.checked),
+      p_timer_enabled: Boolean(onlineElements.friendBattleTimerEnabledInput?.checked ?? true),
     });
     await rpc("link_arpon_player_account", { p_game_id: room.game.id, p_player_token: session.token, p_session_token: account.token });
     await rpc("send_arpon_battle_invite", { p_session_token: account.token, p_username: username, p_game_id: room.game.id });

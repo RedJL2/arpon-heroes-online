@@ -2249,6 +2249,10 @@ body.draft-mode .hero-list {
     url("./assets/stone-wall.png") center / 650px auto;
 }
 
+.collection-backdrop[hidden] {
+  display: none;
+}
+
 .collection-modal {
   position: relative;
   width: min(1320px, calc(100vw - 20px));
@@ -2419,6 +2423,10 @@ body.draft-mode .hero-list {
   aspect-ratio: 11 / 15;
   object-fit: cover;
   image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
 }
 
 .new-card-dot {
@@ -2526,14 +2534,18 @@ body.draft-mode .hero-list {
 }
 
 .upgrade-overlay {
-  position: absolute;
-  z-index: 40;
+  position: fixed;
+  z-index: 840;
   inset: 0;
   display: grid;
   min-height: 100%;
   padding: 18px;
   place-items: center;
   background: rgba(16, 17, 19, 0.72);
+}
+
+.upgrade-overlay[hidden] {
+  display: none;
 }
 
 .upgrade-dialog {
@@ -2604,6 +2616,9 @@ body.draft-mode .hero-list {
   margin: auto;
   object-fit: contain;
   image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
   filter: drop-shadow(7px 9px 0 rgba(0, 0, 0, 0.38));
 }
 
@@ -2633,10 +2648,29 @@ body.draft-mode .hero-list {
   text-align: center;
 }
 
+.pack-opening[hidden] {
+  display: none;
+}
+
+.shop-modal.opening-pack {
+  overflow: hidden;
+}
+
+.shop-modal.opening-pack .collection-title-row,
+.shop-modal.opening-pack #shopMessage {
+  display: none;
+}
+
+.shop-modal.opening-pack .pack-opening {
+  min-height: calc(100vh - 80px);
+}
+
 .sealed-pack {
   position: relative;
   touch-action: none;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .sealed-pack.dragging,
@@ -2647,6 +2681,10 @@ body.draft-mode .hero-list {
 .sealed-pack img {
   width: min(310px, 72vw);
   image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
   filter: drop-shadow(9px 10px 0 rgba(0, 0, 0, 0.32));
 }
 
@@ -2679,12 +2717,18 @@ body.draft-mode .hero-list {
   gap: 8px;
   touch-action: none;
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
   transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)) rotate(calc(var(--swipe-x, 0px) * 0.025deg));
 }
 
 .revealed-card img {
   width: 100%;
   image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
 }
 
 .revealed-card strong {
@@ -2948,7 +2992,7 @@ body.draft-mode .hero-list {
 }
 
 .card-zoom-backdrop {
-  z-index: 200;
+  z-index: 900;
   background:
     linear-gradient(rgba(22, 23, 25, 0.92), rgba(22, 23, 25, 0.92)),
     url("./assets/stone-wall.png") center / 720px auto;

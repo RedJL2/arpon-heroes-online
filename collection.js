@@ -111,22 +111,34 @@
     elements.deckModal.hidden = false;
     elements.deckMessage.textContent = message || "Your active deck must always be 6 Heroes, 6 Armors, and 6 Weapons.";
     renderDeck();
+    resetModalScroll(elements.deckModal);
   }
 
   function showShop(message = "") {
     elements.shopModal.hidden = false;
+    elements.shopModal.classList.remove("opening-pack");
     elements.shopLayout.hidden = false;
     elements.packOpening.hidden = true;
+    elements.packOpening.innerHTML = "";
     opening = null;
     elements.shopMessage.textContent = message || "Win ranked online games to earn coins. Standard packs can contain duplicates for upgrades.";
     elements.shopMessage.classList.remove("error");
     renderCoinPills();
+    resetModalScroll(elements.shopModal);
   }
 
   function returnHome() {
     window.ArponOnline?.showHomeMenu?.();
     const lobby = document.querySelector("#lobbyModal");
     if (lobby) lobby.hidden = false;
+  }
+
+  function resetModalScroll(backdrop) {
+    const modal = backdrop?.querySelector(".modal");
+    requestAnimationFrame(() => {
+      if (modal) modal.scrollTop = 0;
+      if (backdrop) backdrop.scrollTop = 0;
+    });
   }
 
   function renderDeck() {
@@ -229,6 +241,7 @@
       <article><span>Current</span><img src="${cardImage(card, owned.level)}" alt="${card.name} current" /></article>
       <article><span>Next</span><img src="${cardImage(card, owned.level + 1)}" alt="${card.name} next" /></article>`;
     elements.upgradeOverlay.hidden = false;
+    resetModalScroll(elements.deckModal);
   }
 
   function confirmUpgrade() {
@@ -290,9 +303,11 @@
 
   function openPackAnimation(type, results) {
     opening = { type, results, index: 0, stage: "sealed", dragStart: null, dragX: 0, dragY: 0 };
+    elements.shopModal.classList.add("opening-pack");
     elements.shopLayout.hidden = true;
     elements.packOpening.hidden = false;
     renderPackOpening();
+    resetModalScroll(elements.shopModal);
   }
 
   function renderPackOpening() {
@@ -301,7 +316,7 @@
     if (opening.stage === "sealed") {
       elements.packOpening.innerHTML = `
         <div class="sealed-pack" data-pack-drag>
-          <img src="${pack.image}" alt="${pack.title}" />
+          <img src="${pack.image}" alt="${pack.title}" draggable="false" />
           <div class="rip-strip" style="--tear:${Math.max(0, opening.dragX)}px"></div>
         </div>
         <p class="collection-message">Drag across the top of the pack to rip it open.</p>`;
@@ -322,7 +337,7 @@
     elements.packOpening.innerHTML = `
       <div class="reveal-stack">
         <article class="revealed-card" data-card-swipe style="--swipe-x:${opening.dragX}px; --swipe-y:${opening.dragY}px">
-          <img src="${cardImage(result.card, cosmeticLevel(result.card.id))}" alt="${result.card.name}" />
+          <img src="${cardImage(result.card, cosmeticLevel(result.card.id))}" alt="${result.card.name}" draggable="false" />
           <strong>${result.card.name}</strong>
           <span>${result.duplicate ? "Duplicate progress +" : "New card"}</span>
         </article>
@@ -364,23 +379,36 @@
 
   function bindDrag(element, onMove, onEnd) {
     if (!element) return;
-    element.addEventListener("pointerdown", (event) => {
-      element.setPointerCapture?.(event.pointerId);
-      opening.dragStart = { x: event.clientX, y: event.clientY };
-      element.classList.add("dragging");
-    });
-    element.addEventListener("pointermove", (event) => {
-      if (!opening?.dragStart) return;
+    let activePointerId = null;
+    const move = (event) => {
+      if (!opening?.dragStart || activePointerId !== event.pointerId) return;
+      event.preventDefault();
       onMove(event.clientX - opening.dragStart.x, event.clientY - opening.dragStart.y);
-    });
-    const finish = () => {
-      if (!opening?.dragStart) return;
+    };
+    const finish = (event) => {
+      if (!opening?.dragStart || activePointerId !== event.pointerId) return;
+      event.preventDefault();
       opening.dragStart = null;
+      activePointerId = null;
       element.classList.remove("dragging");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
       onEnd();
     };
-    element.addEventListener("pointerup", finish);
-    element.addEventListener("pointercancel", finish);
+    element.addEventListener("pointerdown", (event) => {
+      if (event.button && event.pointerType === "mouse") return;
+      event.preventDefault();
+      event.stopPropagation();
+      element.setPointerCapture?.(event.pointerId);
+      activePointerId = event.pointerId;
+      opening.dragStart = { x: event.clientX, y: event.clientY };
+      element.classList.add("dragging");
+      window.addEventListener("pointermove", move, { passive: false });
+      window.addEventListener("pointerup", finish);
+      window.addEventListener("pointercancel", finish);
+    });
+    element.addEventListener("dragstart", (event) => event.preventDefault());
   }
 
   function resultSummary(result) {
@@ -456,6 +484,7 @@
   });
   elements.closeShopButton?.addEventListener("click", () => {
     elements.shopModal.hidden = true;
+    elements.shopModal.classList.remove("opening-pack");
     opening = null;
     returnHome();
   });
@@ -481,6 +510,9 @@
   elements.shopModal?.addEventListener("click", (event) => {
     const buy = event.target.closest("[data-buy-pack]");
     if (buy) buyPack(buy.dataset.buyPack);
+  });
+  elements.shopModal?.addEventListener("dragstart", (event) => {
+    if (event.target.closest(".sealed-pack, .revealed-card")) event.preventDefault();
   });
 
   renderCoinPills();
