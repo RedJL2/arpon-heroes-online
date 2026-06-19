@@ -6,7 +6,7 @@ const PRESENCE_INTERVAL = 20000;
 
 const onlineElements = Object.fromEntries(
   [
-    "lobbyModal", "homeMenuPanel", "localSetupPanel", "soloSetupPanel", "privateSetupPanel", "openLocalButton", "openSoloButton", "openPrivateButton", "findMatchButton",
+    "lobbyModal", "homeMenuPanel", "playMenuPanel", "localSetupPanel", "soloSetupPanel", "privateSetupPanel", "openPlayButton", "openLocalButton", "openSoloButton", "openPrivateButton", "findMatchButton",
     "homeRulesButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
     "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
@@ -104,7 +104,7 @@ function renderMatchmakingCount(count = null) {
 }
 
 async function refreshMatchmakingCount() {
-  if (matchmakingCountBusy || session.active || onlineElements.homeMenuPanel.hidden || onlineElements.lobbyModal.hidden) return;
+  if (matchmakingCountBusy || session.active || (onlineElements.homeMenuPanel.hidden && onlineElements.playMenuPanel.hidden) || onlineElements.lobbyModal.hidden) return;
   matchmakingCountBusy = true;
   try {
     renderMatchmakingCount(await rpc("get_arpon_matchmaking_waiting_count"));
@@ -117,11 +117,12 @@ async function refreshMatchmakingCount() {
 
 function showHomePanel(panel) {
   onlineElements.homeMenuPanel.hidden = panel !== "menu";
+  onlineElements.playMenuPanel.hidden = panel !== "play";
   onlineElements.localSetupPanel.hidden = panel !== "local";
   onlineElements.soloSetupPanel.hidden = panel !== "solo";
   onlineElements.privateSetupPanel.hidden = panel !== "private";
   onlineElements.lobbyModal.hidden = false;
-  if (panel === "menu") refreshMatchmakingCount();
+  if (panel === "menu" || panel === "play") refreshMatchmakingCount();
 }
 
 function showPrivateMessage(message, error = false) {
@@ -462,6 +463,7 @@ function renderAccount() {
     onlineElements.onlinePlayerName.value = profile.username;
     setAccountMessage("Your record is saved after ranked and robot battles.");
   }
+  window.ArponCollection?.onAccountChanged?.(profile);
 }
 
 async function refreshAccount() {
@@ -705,6 +707,7 @@ async function recordGameComplete(result, attempt = 0, context = null) {
     }
     account.recordedResults.add(result.matchId);
     account.pendingResults.delete(result.matchId);
+    if (result.ranked && session.localTeam && result.winners?.includes(session.localTeam)) window.ArponCollection?.awardCoins?.(2);
     await refreshAccount();
   } catch {
     if (attempt < 6) {
@@ -715,6 +718,7 @@ async function recordGameComplete(result, attempt = 0, context = null) {
   }
 }
 
+onlineElements.openPlayButton?.addEventListener("click", () => showHomePanel("play"));
 onlineElements.openLocalButton.addEventListener("click", async () => {
   await disconnectOnline();
   showHomePanel("local");
@@ -798,6 +802,7 @@ onlineElements.closeAdminButton.addEventListener("click", () => {
 window.ArponOnline = {
   canControlTeam: (team) => !session.active || session.localTeam === team,
   getLocalTeam: () => session.localTeam,
+  getAccountProfile: () => account.profile,
   isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
   onGameRendered: schedulePush,
@@ -809,6 +814,7 @@ window.ArponOnline = {
     disconnectOnline();
     showHomePanel("menu");
   },
+  showHomeMenu: () => showHomePanel("menu"),
 };
 
 onlineElements.onlinePlayerName.value = localStorage.getItem("arpon-player-name") || "Player";

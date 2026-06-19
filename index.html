@@ -104,6 +104,30 @@
         </header>
 
         <section class="home-panel" id="homeMenuPanel">
+          <div class="home-main-grid">
+            <button class="mode-card play-home" id="openPlayButton" type="button">
+              <span class="mode-icon">▶</span>
+              <strong>Play</strong>
+              <small>Local, solo, private, or online matchmaking</small>
+            </button>
+            <button class="mode-card deck-home" id="openDeckButton" type="button">
+              <span class="mode-icon">18</span>
+              <strong>Deck</strong>
+              <small>Build your 6 Hero, 6 Armor, 6 Weapon active deck</small>
+            </button>
+            <button class="mode-card shop-home" id="openShopButton" type="button">
+              <span class="mode-icon">✦</span>
+              <strong>Shop</strong>
+              <small>Open packs and upgrade card cosmetics</small>
+            </button>
+          </div>
+        </section>
+
+        <section class="home-panel setup-mode-panel" id="playMenuPanel" hidden>
+          <div class="home-panel-title">
+            <button class="back-action" data-home-back type="button">Back</button>
+            <div><span>Battle Modes</span><strong>Choose How to Play</strong></div>
+          </div>
           <div class="mode-grid">
             <button class="mode-card local" id="openLocalButton" type="button">
               <span class="mode-icon">1</span>
@@ -131,15 +155,16 @@
             <span>Your online name</span>
             <input id="onlinePlayerName" maxlength="22" placeholder="Player name" value="Player" />
           </label>
-          <div class="account-actions">
-            <button class="back-action" id="accountButton" type="button">Account &amp; Record</button>
-            <span id="accountSummary">Playing as guest</span>
-            <button class="back-action" id="friendsButton" type="button" hidden>Friends</button>
-            <button class="back-action" id="leaderboardButton" type="button">Leaderboard</button>
-            <button class="back-action admin-action" id="adminButton" type="button" hidden>Creator View</button>
-          </div>
           <p class="home-note">Online games begin with two players. Matchmaking waits up to two minutes for players three and four.</p>
         </section>
+
+        <div class="account-actions home-persistent-actions">
+          <button class="back-action" id="friendsButton" type="button" hidden>Friends</button>
+          <button class="back-action" id="leaderboardButton" type="button">Leaderboard</button>
+          <span id="accountSummary">Playing as guest</span>
+          <button class="back-action" id="accountButton" type="button">Account &amp; Record</button>
+          <button class="back-action admin-action" id="adminButton" type="button" hidden>Creator View</button>
+        </div>
 
         <section class="home-panel setup-mode-panel" id="localSetupPanel" hidden>
           <div class="home-panel-title">
@@ -439,6 +464,86 @@
       </section>
     </div>
 
+    <div class="modal-backdrop collection-backdrop" id="deckModal" hidden>
+      <section class="modal collection-modal deck-modal">
+        <div class="modal-title-row collection-title-row">
+          <div>
+            <p class="eyebrow">Collection</p>
+            <h2>Deck Builder</h2>
+          </div>
+          <div class="collection-title-actions">
+            <span class="coin-pill" id="deckCoinPill">0 coins</span>
+            <button class="tool-button" id="closeDeckButton" type="button">Close</button>
+          </div>
+        </div>
+        <p class="collection-message" id="deckMessage">Your active deck must always be 6 Heroes, 6 Armors, and 6 Weapons.</p>
+        <div class="deck-builder-layout">
+          <section class="deck-zone active-deck-zone">
+            <div class="collection-section-title"><strong>Active Deck</strong><span>18 cards used for games</span></div>
+            <div class="deck-columns" id="activeDeckColumns"></div>
+          </section>
+          <section class="deck-zone owned-deck-zone">
+            <div class="collection-section-title"><strong>Owned Cards</strong><span>Tap a card to view it. Use Swap to change your active deck.</span></div>
+            <div class="deck-columns" id="ownedDeckColumns"></div>
+          </section>
+        </div>
+        <div class="deck-swap-bar" id="deckSwapBar" hidden>
+          <strong id="deckSwapText">Choose a replacement card.</strong>
+          <button class="secondary-action" id="cancelDeckSwapButton" type="button">Cancel Swap</button>
+        </div>
+        <div class="upgrade-overlay" id="upgradeOverlay" hidden>
+          <section class="upgrade-dialog">
+            <button class="modal-corner-close" id="closeUpgradeButton" type="button" aria-label="Close upgrade">X</button>
+            <p class="eyebrow">Cosmetic upgrade</p>
+            <h3 id="upgradeTitle">Upgrade Card?</h3>
+            <div class="upgrade-preview" id="upgradePreview"></div>
+            <p id="upgradeText">This only changes the art background color.</p>
+            <div class="move-choice-actions">
+              <button class="secondary-action large" id="cancelUpgradeButton" type="button">Cancel</button>
+              <button class="primary-action large" id="confirmUpgradeButton" type="button">Upgrade</button>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop collection-backdrop" id="shopModal" hidden>
+      <section class="modal collection-modal shop-modal">
+        <div class="modal-title-row collection-title-row">
+          <div>
+            <p class="eyebrow">Coins &amp; Packs</p>
+            <h2>Shop</h2>
+          </div>
+          <div class="collection-title-actions">
+            <span class="coin-pill" id="shopCoinPill">0 coins</span>
+            <button class="tool-button" id="closeShopButton" type="button">Close</button>
+          </div>
+        </div>
+        <p class="collection-message" id="shopMessage">Win ranked online games to earn coins. Standard packs can contain duplicates for upgrades.</p>
+        <div class="shop-layout" id="shopLayout">
+          <article class="pack-card standard-pack">
+            <img src="./assets/pack-art/standard-extension-pack.png" alt="Standard Extension Pack" />
+            <div>
+              <span>5 cards · duplicates possible</span>
+              <h3>Standard Extension Pack</h3>
+              <p>Random cards for collection growth and cosmetic upgrade progress.</p>
+              <button class="primary-action" data-buy-pack="standard" type="button">Buy for 4 coins</button>
+            </div>
+          </article>
+          <article class="pack-card novelty-pack">
+            <img src="./assets/pack-art/novelty-extension-pack.png" alt="Novelty Extension Pack" />
+            <div>
+              <span>3 cards · guaranteed new</span>
+              <h3>Novelty Extension Pack</h3>
+              <p>Only gives cards you do not own yet.</p>
+              <button class="primary-action" data-buy-pack="novelty" type="button">Buy for 5 coins</button>
+            </div>
+          </article>
+        </div>
+        <div class="pack-opening" id="packOpening" hidden></div>
+      </section>
+    </div>
+
     <div class="modal-backdrop" id="adminModal" hidden>
       <section class="modal admin-modal">
         <div class="modal-title-row">
@@ -453,6 +558,7 @@
 
     <script src="./audioManager.js"></script>
     <script src="./app.js"></script>
+    <script src="./collection.js"></script>
     <script type="module" src="./online.js"></script>
   </body>
 </html>

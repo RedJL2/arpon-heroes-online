@@ -15,7 +15,8 @@ const teams = {
 };
 
 const cardAsset = (fileName) => `./assets/${fileName}`;
-const hero = (id, family, name, image, ability, text, effects = {}) => ({ id, kind: "hero", family, name, image: cardAsset(image), ability, text, effects });
+const characterAsset = (id) => `./assets/character-art/${id}.${id === "zero_h" ? "png" : "jpg"}`;
+const hero = (id, family, name, image, ability, text, effects = {}) => ({ id, kind: "hero", family, name, image: cardAsset(image), tokenImage: characterAsset(id), ability, text, effects });
 const armor = (id, family, name, hp, image, ability, text, effects = {}) => ({ id, kind: "armor", family, name, hp, image: cardAsset(image), ability, text, effects });
 const weapon = (id, family, name, dp, image, ability, text, effects = {}) => ({ id, kind: "weapon", family, name, dp, image: cardAsset(image), ability, text, effects });
 
@@ -71,6 +72,32 @@ const cards = [
 ];
 
 const cardsById = Object.fromEntries(cards.map((card) => [card.id, card]));
+
+function cosmeticLevelForCard(card) {
+  return Math.max(0, Math.min(5, Number(window.ArponCollection?.cosmeticLevel?.(card?.id) || 0)));
+}
+
+function cardCosmeticPath(card, level) {
+  return level > 0 ? `./assets/card-cosmetics/${card.id}_tier${level}.png` : card.image;
+}
+
+function characterCosmeticPath(heroCard, level) {
+  return level > 0 ? `./assets/character-cosmetics/${heroCard.id}_tier${level}.png` : heroCard.tokenImage || heroCard.image;
+}
+
+function cosmeticLevelFromLoadout(card, loadout = null) {
+  if (loadout?.cosmetics?.[card.kind] !== undefined) return Math.max(0, Math.min(5, Number(loadout.cosmetics[card.kind] || 0)));
+  return cosmeticLevelForCard(card);
+}
+
+function cardDisplayImage(card, loadout = null) {
+  return cardCosmeticPath(card, cosmeticLevelFromLoadout(card, loadout));
+}
+
+function heroTokenImage(loadout) {
+  return characterCosmeticPath(loadout.hero, cosmeticLevelFromLoadout(loadout.hero, loadout));
+}
+
 const state = {
   mode: "local",
   matchId: crypto.randomUUID(),
@@ -363,22 +390,24 @@ function startGame() {
 }
 
 function dealDraftHands() {
-  const pools = {
-    hero: shuffle(cards.filter((card) => card.kind === "hero")),
-    armor: shuffle(cards.filter((card) => card.kind === "armor")),
-    weapon: shuffle(cards.filter((card) => card.kind === "weapon")),
-  };
   state.draftHands = {};
   state.draftSelections = {};
   state.draftSwaps = {};
   state.draftLocked = {};
   state.wandeltChoices = {};
   activeTeams().forEach((team, playerIndex) => {
-    state.draftHands[team] = Object.fromEntries(Object.keys(pools).map((kind) => [kind, pools[kind].slice(playerIndex * 3, playerIndex * 3 + 3).map((card) => card.id)]));
+    state.draftHands[team] = Object.fromEntries(["hero", "armor", "weapon"].map((kind) => [kind, draftPoolForTeam(team, kind, playerIndex).map((card) => card.id)]));
     state.draftSelections[team] = { hero: [], armor: [], weapon: [] };
     state.draftSwaps[team] = { armor: false, weapon: false };
     state.draftLocked[team] = false;
   });
+}
+
+function draftPoolForTeam(team, kind, playerIndex = 0) {
+  const activeDeck = window.ArponCollection?.activeDeckIdsForTeam?.(team) || window.ArponCollection?.activeDeckIds?.() || [];
+  const deckPool = activeDeck.map((id) => cardsById[id]).filter((card) => card?.kind === kind);
+  const source = deckPool.length >= 3 ? deckPool : cards.filter((card) => card.kind === kind);
+  return shuffle(source).slice(0, 3);
 }
 
 function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit = TWO_PLAYER_TURN_LIMIT) {
@@ -773,7 +802,7 @@ function draftCardButton(card, selected, locked = false) {
   const stat = card.kind === "armor" ? `${card.hp} HP` : card.kind === "weapon" ? `${card.dp} DP` : card.family;
   return `<article class="draft-card ${selected ? "selected" : ""}">
     <button class="draft-select" data-card-id="${card.id}" data-card-kind="${card.kind}" type="button" ${locked ? "disabled" : ""}>
-      <img src="${card.image}" alt="${card.name}" /><span>${card.name}</span><small>${stat}</small>
+      <img src="${cardDisplayImage(card)}" alt="${card.name}" /><span>${card.name}</span><small>${stat}</small>
     </button>
     ${cardZoomButton(card)}
   </article>`;
@@ -873,6 +902,11 @@ function createLoadout(team, setNumber, heroCard, armorCard, weaponCard) {
     hero: heroCard,
     armor: armorCard,
     weapon: weaponCard,
+    cosmetics: {
+      hero: cosmeticLevelForCard(heroCard),
+      armor: cosmeticLevelForCard(armorCard),
+      weapon: cosmeticLevelForCard(weaponCard),
+    },
     chosenPattern: weaponCard.id === "zanion_w" ? state.wandeltChoices[`${team}_${setNumber}`] || "cross" : null,
     maxHp,
     currentHp: maxHp,
@@ -1001,7 +1035,7 @@ function renderPawns(highlights) {
     pawn.title = `${loadout.name}, ${displayName(loadout.team)}, Hero ${loadout.setNumber}`;
     pawn.innerHTML = `
       <span class="pawn-attack">${attackMark}<b>${loadout.weapon.effects.range}</b></span>
-      <span class="pawn-portrait"><img src="${loadout.hero.image}" alt="" /></span>
+      <span class="pawn-portrait"><img src="${heroTokenImage(loadout)}" alt="" /></span>
       <span class="pawn-number">${loadout.setNumber}</span>`;
     pawn.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1024,7 +1058,7 @@ function loadoutChip(loadout) {
   const currentHp = Math.max(0, loadout.currentHp);
   return `<button class="hero-chip ${loadout.id === deviceState.selectedSetId ? "selected" : ""} ${loadout.ko ? "ko" : ""}" style="--hp:${percent}%;--team-color:${teams[loadout.team].color}" data-loadout-id="${loadout.id}" type="button" aria-label="View ${loadout.name}, Hero ${loadout.setNumber}, ${currentHp} of ${loadout.maxHp} HP">
     <span class="hero-number">${loadout.setNumber}</span>
-    <span class="chip-portrait"><img src="${loadout.hero.image}" alt="" /></span>
+    <span class="chip-portrait"><img src="${heroTokenImage(loadout)}" alt="" /></span>
     <span class="chip-meta">
       <span class="chip-title"><strong>${loadout.name}</strong><span class="chip-health-number">${currentHp}<small> / ${loadout.maxHp} HP</small></span></span>
       <i class="chip-health-bar"><b></b></i>
@@ -1090,7 +1124,7 @@ function renderSetPreview() {
   elements.setPreviewModal.style.setProperty("--preview-color", teams[loadout.team].color);
   elements.setPreviewTitle.textContent = `${displayName(loadout.team)} · Hero ${loadout.setNumber}: ${loadout.name}`;
   elements.setPreviewCards.innerHTML = [loadout.hero, loadout.armor, loadout.weapon]
-    .map((card) => `<article><img src="${card.image}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
+    .map((card) => `<article><img src="${cardDisplayImage(card, loadout)}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
     .join("");
   elements.setPreviewModal.hidden = false;
 }
@@ -1105,7 +1139,7 @@ function renderSelectedPanel() {
   const armorMatch = loadout.hero.family === loadout.armor.family;
   const weaponMatch = loadout.hero.family === loadout.weapon.family;
   elements.selectedCard.innerHTML = `
-    <div class="selected-head"><div class="card-media"><img src="${loadout.hero.image}" alt="${loadout.name}" />${cardZoomButton(loadout.hero)}</div><div><span class="player-label">${displayName(loadout.team)} · Hero ${loadout.setNumber}</span><h2>${loadout.name}</h2><div class="stat-row"><strong>${Math.max(0, loadout.currentHp)} HP</strong><strong>${baseAttack(loadout)} DP</strong><strong>${titleCase(weaponPattern(loadout))} ${loadout.weapon.effects.range}</strong>${armorMatch ? "<strong>Armor Match +100 HP</strong>" : ""}${weaponMatch ? `<strong>Weapon Match +${matchingWeaponBonus(loadout)} DP</strong>` : ""}</div></div></div>
+    <div class="selected-head"><div class="card-media"><img src="${heroTokenImage(loadout)}" alt="${loadout.name}" />${cardZoomButton(loadout.hero)}</div><div><span class="player-label">${displayName(loadout.team)} · Hero ${loadout.setNumber}</span><h2>${loadout.name}</h2><div class="stat-row"><strong>${Math.max(0, loadout.currentHp)} HP</strong><strong>${baseAttack(loadout)} DP</strong><strong>${titleCase(weaponPattern(loadout))} ${loadout.weapon.effects.range}</strong>${armorMatch ? "<strong>Armor Match +100 HP</strong>" : ""}${weaponMatch ? `<strong>Weapon Match +${matchingWeaponBonus(loadout)} DP</strong>` : ""}</div></div></div>
     <p><strong>${loadout.hero.ability}:</strong> ${loadout.hero.text}</p>`;
 }
 
@@ -1117,7 +1151,7 @@ function renderCards() {
   }
   elements.cardStack.innerHTML = [loadout.hero, loadout.armor, loadout.weapon].map((card) => {
     const stat = card.kind === "armor" ? `${card.hp} HP` : card.kind === "weapon" ? `${card.dp} DP` : card.family;
-    return `<article class="loadout-card"><div class="card-media"><img src="${card.image}" alt="${card.name}" />${cardZoomButton(card)}</div><div><span>${titleCase(card.kind)} · ${stat}</span><h3>${card.name}</h3><p><strong>${card.ability}:</strong> ${card.text}</p></div></article>`;
+    return `<article class="loadout-card"><div class="card-media"><img src="${cardDisplayImage(card, loadout)}" alt="${card.name}" />${cardZoomButton(card)}</div><div><span>${titleCase(card.kind)} · ${stat}</span><h3>${card.name}</h3><p><strong>${card.ability}:</strong> ${card.text}</p></div></article>`;
   }).join("");
 }
 
@@ -2475,6 +2509,8 @@ window.ArponGame = {
   reconcileOnlineState,
   startOnlineGame,
   cards,
+  cardDisplayImage,
+  heroTokenImage,
   actions: { startGame, startSoloGame, rollForPhase, endTurn, placeWallSegment, placeHero, attackLoadout, moveLoadoutTo },
   inspect: { getReachableCells, isStepBlocked, getAttackTargets },
 };
@@ -2486,8 +2522,9 @@ function cardZoomButton(card) {
 function openCardZoom(cardId) {
   const card = cardsById[cardId];
   if (!card) return;
+  window.ArponCollection?.markSeen?.(cardId);
   elements.cardZoomTitle.textContent = card.name;
-  elements.cardZoomImage.src = card.image;
+  elements.cardZoomImage.src = cardDisplayImage(card);
   elements.cardZoomImage.alt = card.name;
   elements.cardZoomModal.hidden = false;
 }

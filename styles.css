@@ -573,9 +573,7 @@ button:disabled {
   width: 100%;
   height: 100%;
   border: 1px solid #292c30;
-  object-fit: cover;
-  object-position: center 24%;
-  transform: scale(2.35);
+  object-fit: contain;
   image-rendering: pixelated;
 }
 
@@ -979,9 +977,7 @@ button:disabled {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  object-fit: cover;
-  object-position: center 24%;
-  transform: scale(2.35);
+  object-fit: contain;
   image-rendering: pixelated;
 }
 
@@ -1080,9 +1076,7 @@ button:disabled {
   width: 76px;
   height: 102px;
   border: 2px solid #292c31;
-  object-fit: cover;
-  object-position: center 24%;
-  transform: scale(2.35);
+  object-fit: contain;
   image-rendering: pixelated;
 }
 
@@ -1579,6 +1573,29 @@ body.draft-mode .hero-list {
   gap: 12px;
 }
 
+.home-main-grid {
+  display: grid;
+  min-height: 310px;
+  grid-template-columns: 1.15fr 1fr 1fr;
+  gap: 14px;
+}
+
+.home-main-grid .mode-card {
+  min-height: 250px;
+}
+
+.mode-card.play-home {
+  border-bottom-color: var(--red);
+}
+
+.mode-card.deck-home {
+  border-bottom-color: var(--blue);
+}
+
+.mode-card.shop-home {
+  border-bottom-color: #d6ab00;
+}
+
 .mode-card {
   display: grid;
   min-height: 190px;
@@ -1677,6 +1694,13 @@ body.draft-mode .hero-list {
   align-items: center;
   justify-content: center;
   gap: 10px;
+}
+
+.home-persistent-actions {
+  margin: 0;
+  padding: 12px 18px 18px;
+  border-top: 3px solid #292c31;
+  background: rgba(255, 255, 255, 0.45);
 }
 
 .account-actions span {
@@ -2216,6 +2240,495 @@ body.draft-mode .hero-list {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 6px;
+}
+
+.collection-backdrop {
+  z-index: 620;
+  background:
+    linear-gradient(rgba(15, 16, 17, 0.78), rgba(15, 16, 17, 0.78)),
+    url("./assets/stone-wall.png") center / 650px auto;
+}
+
+.collection-modal {
+  position: relative;
+  width: min(1320px, calc(100vw - 20px));
+  max-height: calc(100vh - 20px);
+  background:
+    linear-gradient(rgba(244, 243, 235, 0.93), rgba(244, 243, 235, 0.93)),
+    url("./assets/stone-wall.png") center / 520px auto;
+}
+
+.collection-title-row {
+  position: sticky;
+  z-index: 10;
+  top: -24px;
+  padding: 0 0 10px;
+  border-bottom: 3px solid #292c31;
+  background: rgba(244, 243, 235, 0.97);
+}
+
+.collection-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.coin-pill {
+  display: inline-grid;
+  min-height: 38px;
+  padding: 0 13px;
+  place-items: center;
+  border: 3px solid #292c31;
+  background: #e6c342;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.24);
+  color: #252217;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.collection-message {
+  margin: 12px 0;
+  color: #4e555d;
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.collection-message.error {
+  color: var(--red);
+}
+
+.deck-builder-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.deck-zone {
+  padding: 12px;
+  border: 4px solid #292c31;
+  background: rgba(255, 255, 249, 0.75);
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.16);
+}
+
+.active-deck-zone {
+  background: rgba(255, 252, 235, 0.82);
+}
+
+.collection-section-title {
+  display: flex;
+  margin-bottom: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collection-section-title strong {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+}
+
+.collection-section-title span {
+  color: #5c6268;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.deck-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.deck-column {
+  min-width: 0;
+}
+
+.deck-column h3 {
+  display: flex;
+  margin: 0 0 8px;
+  justify-content: space-between;
+  border-bottom: 3px solid #292c31;
+  font-size: 0.84rem;
+  text-transform: uppercase;
+}
+
+.deck-column h3 span {
+  color: var(--red);
+}
+
+.collection-card-list {
+  display: grid;
+  gap: 8px;
+}
+
+.collection-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  padding: 7px;
+  grid-template-columns: 74px 1fr;
+  align-items: center;
+  border: 3px solid #292c31;
+  background: #fffefa;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.12);
+  gap: 8px;
+}
+
+.collection-card.tier-1 { border-color: #0cc222; }
+.collection-card.tier-2 { border-color: #2a7eee; }
+.collection-card.tier-3 { border-color: #9244da; }
+.collection-card.tier-4 { border-color: #d5a90c; }
+.collection-card.tier-5 { border-color: #d92d2d; }
+
+.collection-card.pending-swap {
+  outline: 4px solid var(--red);
+  outline-offset: 2px;
+}
+
+.collection-card.is-new::after {
+  position: absolute;
+  top: -8px;
+  right: -7px;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 2px #292c31;
+  content: "";
+  animation: new-card-blink 0.8s steps(2, end) infinite;
+}
+
+@keyframes new-card-blink {
+  50% { opacity: 0.25; }
+}
+
+.collection-card-image {
+  position: relative;
+  width: 74px;
+  padding: 0;
+  border: 2px solid #292c31;
+  background: #111;
+  cursor: pointer;
+}
+
+.collection-card-image img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 11 / 15;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.new-card-dot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 2px 3px;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.48rem;
+}
+
+.collection-card-meta {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.collection-card-meta strong {
+  overflow: hidden;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-card-meta span {
+  color: #5c6268;
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.duplicate-progress {
+  display: flex;
+  height: 12px;
+  grid-column: 2;
+  border: 2px solid #292c31;
+  background: #bcc1c4;
+  gap: 1px;
+}
+
+.duplicate-progress i {
+  flex: 1;
+  background: transparent;
+}
+
+.duplicate-progress i.filled {
+  background: #159b55;
+}
+
+.duplicate-progress.upgrade-ready {
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(21, 155, 85, 0.8);
+  animation: upgrade-ready-pulse 1s ease-in-out infinite;
+}
+
+@keyframes upgrade-ready-pulse {
+  50% { filter: brightness(1.25); }
+}
+
+.collection-card-actions {
+  display: flex;
+  grid-column: 2;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.collection-card-actions button {
+  min-height: 29px;
+  padding: 4px 8px;
+  border: 2px solid #292c31;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.6rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.collection-card-actions .upgrade-mini-button,
+.collection-card-actions button[data-finish-swap] {
+  background: var(--red);
+  color: #fff;
+}
+
+.empty-collection {
+  margin: 0;
+  padding: 14px;
+  border: 2px dashed #8f969c;
+  color: #5b6269;
+  font-size: 0.72rem;
+}
+
+.deck-swap-bar {
+  position: sticky;
+  z-index: 12;
+  bottom: 8px;
+  display: flex;
+  margin-top: 12px;
+  padding: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border: 4px solid #292c31;
+  background: #fff;
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.22);
+  gap: 10px;
+}
+
+.upgrade-overlay {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  min-height: 100%;
+  padding: 18px;
+  place-items: center;
+  background: rgba(16, 17, 19, 0.72);
+}
+
+.upgrade-dialog {
+  position: relative;
+  width: min(720px, 100%);
+  padding: 22px;
+  border: 5px solid #292c31;
+  background:
+    linear-gradient(rgba(255, 254, 248, 0.97), rgba(255, 254, 248, 0.97)),
+    url("./assets/stone-wall.png") center / 460px auto;
+  box-shadow: 8px 8px 0 var(--red);
+}
+
+.upgrade-dialog h3 {
+  margin: 4px 0 12px;
+}
+
+.upgrade-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.upgrade-preview article {
+  display: grid;
+  padding: 10px;
+  justify-items: center;
+  border: 3px solid #292c31;
+  background: #fff;
+  gap: 7px;
+}
+
+.upgrade-preview span {
+  color: #5c6268;
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.upgrade-preview img {
+  width: min(220px, 100%);
+  image-rendering: pixelated;
+}
+
+.shop-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.pack-card {
+  display: grid;
+  min-height: 460px;
+  padding: 16px;
+  grid-template-rows: minmax(260px, 1fr) auto;
+  border: 5px solid #292c31;
+  background:
+    linear-gradient(rgba(31, 33, 36, 0.42), rgba(31, 33, 36, 0.75)),
+    url("./assets/stone-wall.png") center / 430px auto;
+  box-shadow: 6px 7px 0 rgba(0, 0, 0, 0.28);
+  color: #fff;
+  gap: 12px;
+}
+
+.pack-card img {
+  width: min(250px, 80%);
+  max-height: 300px;
+  margin: auto;
+  object-fit: contain;
+  image-rendering: pixelated;
+  filter: drop-shadow(7px 9px 0 rgba(0, 0, 0, 0.38));
+}
+
+.pack-card h3 {
+  margin: 4px 0;
+  font-size: 1.15rem;
+}
+
+.pack-card span {
+  color: #e6c342;
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.pack-card p {
+  margin: 0 0 12px;
+  color: #e8e5dc;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.pack-opening {
+  min-height: min(68vh, 720px);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.sealed-pack {
+  position: relative;
+  touch-action: none;
+  cursor: grab;
+}
+
+.sealed-pack.dragging,
+.revealed-card.dragging {
+  cursor: grabbing;
+}
+
+.sealed-pack img {
+  width: min(310px, 72vw);
+  image-rendering: pixelated;
+  filter: drop-shadow(9px 10px 0 rgba(0, 0, 0, 0.32));
+}
+
+.rip-strip {
+  position: absolute;
+  top: 8%;
+  left: 10%;
+  width: min(var(--tear, 0px), 80%);
+  height: 9%;
+  border-right: 5px solid #fff;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.82) 0 8px, rgba(230, 195, 66, 0.95) 8px 14px);
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.reveal-stack {
+  position: relative;
+  display: grid;
+  min-height: 510px;
+  place-items: center;
+}
+
+.revealed-card {
+  display: grid;
+  width: min(310px, 78vw);
+  padding: 12px;
+  border: 5px solid #292c31;
+  background: #fffdf7;
+  box-shadow: 8px 9px 0 rgba(0, 0, 0, 0.28);
+  gap: 8px;
+  touch-action: none;
+  cursor: grab;
+  transform: translate(var(--swipe-x, 0px), var(--swipe-y, 0px)) rotate(calc(var(--swipe-x, 0px) * 0.025deg));
+}
+
+.revealed-card img {
+  width: 100%;
+  image-rendering: pixelated;
+}
+
+.revealed-card strong {
+  font-size: 1.1rem;
+}
+
+.revealed-card span {
+  color: var(--red);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.remaining-stack {
+  position: absolute;
+  bottom: 18px;
+  padding: 8px 12px;
+  border: 3px solid #292c31;
+  background: #e6c342;
+  font-weight: 900;
+}
+
+.pack-summary {
+  width: min(900px, 100%);
+}
+
+.pack-summary-grid {
+  display: grid;
+  margin: 12px 0;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+
+.pack-summary-grid article {
+  display: grid;
+  padding: 8px;
+  border: 3px solid #292c31;
+  background: #fff;
+  gap: 5px;
+}
+
+.pack-summary-grid img {
+  width: 100%;
+  image-rendering: pixelated;
 }
 
 .turn-limit-control {
@@ -2781,6 +3294,7 @@ body.draft-mode .hero-list {
   }
 
   .mode-grid,
+  .home-main-grid,
   .private-actions,
   .private-settings {
     grid-template-columns: 1fr;
@@ -2792,6 +3306,67 @@ body.draft-mode .hero-list {
 
   .mode-card {
     min-height: 135px;
+  }
+
+  .home-main-grid {
+    min-height: 0;
+  }
+
+  .home-main-grid .mode-card {
+    min-height: 135px;
+  }
+
+  .deck-columns,
+  .shop-layout,
+  .upgrade-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .collection-modal {
+    width: calc(100vw - 12px);
+    padding: 14px;
+  }
+
+  .collection-title-row,
+  .collection-section-title,
+  .deck-swap-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .collection-title-actions {
+    justify-content: space-between;
+  }
+
+  .deck-zone {
+    padding: 9px;
+  }
+
+  .deck-column {
+    padding: 8px;
+    border: 2px solid #292c31;
+    background: rgba(255, 255, 255, 0.44);
+  }
+
+  .deck-column + .deck-column {
+    margin-top: 10px;
+  }
+
+  .collection-card {
+    grid-template-columns: 68px 1fr;
+  }
+
+  .collection-card-image {
+    width: 68px;
+  }
+
+  .pack-card {
+    min-height: 360px;
+    grid-template-rows: auto auto;
+  }
+
+  .pack-card img {
+    max-height: 220px;
   }
 
   .mode-icon {
