@@ -2346,6 +2346,30 @@ body.draft-mode .hero-list {
   color: var(--red);
 }
 
+.collection-save-state {
+  margin: -4px 0 14px;
+  padding: 8px 10px;
+  border: 2px solid #292c31;
+  background: rgba(255, 255, 255, 0.82);
+  color: #31363a;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.collection-save-state.unsaved {
+  border-color: #d0a620;
+  background: #fff3b8;
+  color: #6b4c00;
+}
+
+.collection-save-state.error {
+  border-color: var(--red);
+  background: #ffe1e1;
+  color: var(--red);
+}
+
 .deck-builder-layout {
   display: grid;
   gap: 16px;

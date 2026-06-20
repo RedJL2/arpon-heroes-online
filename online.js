@@ -506,6 +506,10 @@ function isGrantSetupMissing(error) {
   return /claim_arpon_account_grants|admin_grant_arpon|function .* does not exist|schema cache/i.test(String(error?.message || error || ""));
 }
 
+function isDeckSetupMissing(error) {
+  return /save_arpon_account_deck|get_arpon_account_deck|function .* does not exist|schema cache/i.test(String(error?.message || error || ""));
+}
+
 async function claimAccountGrants() {
   if (!account.token || !account.profile || grantClaimBusy || !window.ArponCollection?.applyAccountGrants) return;
   grantClaimBusy = true;
@@ -517,6 +521,26 @@ async function claimAccountGrants() {
     if (!isGrantSetupMissing(error)) console.warn("Could not claim creator rewards", error);
   } finally {
     grantClaimBusy = false;
+  }
+}
+
+async function loadAccountDeck() {
+  if (!account.token) return null;
+  try {
+    return await rpc("get_arpon_account_deck", { p_session_token: account.token });
+  } catch (error) {
+    if (!isDeckSetupMissing(error)) throw error;
+    return null;
+  }
+}
+
+async function saveAccountDeck(activeDeck) {
+  if (!account.token) throw new Error("Sign in before saving this deck to your account.");
+  try {
+    return await rpc("save_arpon_account_deck", { p_session_token: account.token, p_active_deck: activeDeck });
+  } catch (error) {
+    if (isDeckSetupMissing(error)) throw new Error("Run supabase-account-deck-update.sql in Supabase SQL Editor once, then save the deck again.");
+    throw error;
   }
 }
 
@@ -537,6 +561,7 @@ async function refreshAccount() {
   }
   renderAccount();
   claimAccountGrants();
+  window.ArponCollection?.loadAccountDeckFromAccount?.();
 }
 
 async function submitAccount(create) {
@@ -556,6 +581,7 @@ async function submitAccount(create) {
     renderAccount();
     touchPresence();
     claimAccountGrants();
+    window.ArponCollection?.loadAccountDeckFromAccount?.();
     if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   } catch (error) {
     setAccountMessage(error.message, true);
@@ -919,6 +945,8 @@ window.ArponOnline = {
   canControlTeam: (team) => !session.active || session.localTeam === team,
   getLocalTeam: () => session.localTeam,
   getAccountProfile: () => account.profile,
+  loadAccountDeck,
+  saveAccountDeck,
   isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
   onGameRendered: schedulePush,

@@ -21,13 +21,16 @@
     [
       "openPlayButton", "openDeckButton", "openShopButton", "deckModal", "closeDeckButton", "activeDeckColumns", "ownedDeckColumns",
       "deckMessage", "deckSwapBar", "deckSwapText", "cancelDeckSwapButton", "upgradeOverlay", "upgradeTitle", "upgradePreview",
-      "upgradeText", "closeUpgradeButton", "cancelUpgradeButton", "confirmUpgradeButton", "deckCoinPill", "shopModal",
+      "upgradeText", "closeUpgradeButton", "cancelUpgradeButton", "confirmUpgradeButton", "deckCoinPill", "saveDeckButton",
+      "deckSaveState", "shopModal",
       "closeShopButton", "shopCoinPill", "shopMessage", "shopLayout", "packOpening",
     ].map((id) => [id, document.querySelector(`#${id}`)]),
   );
 
   let ownerKey = ownerStorageKey();
   let collection = loadCollection(ownerKey);
+  let draftDeck = null;
+  let deckDirty = false;
   let pendingSwap = null;
   let pendingUpgrade = null;
   let opening = null;
@@ -113,6 +116,8 @@
   function showDeck(message = "") {
     pendingSwap = null;
     pendingUpgrade = null;
+    draftDeck = [...collection.activeDeck];
+    deckDirty = false;
     elements.deckModal.hidden = false;
     elements.deckMessage.textContent = message || "Your active 18-card deck must always be 6 Heroes, 6 Armors, and 6 Weapons.";
     renderDeck();
@@ -146,8 +151,84 @@
     });
   }
 
+  function editableDeck() {
+    if (!draftDeck) draftDeck = [...collection.activeDeck];
+    return draftDeck;
+  }
+
+  function renderDeckSaveState(text = "") {
+    if (!elements.deckSaveState || !elements.saveDeckButton) return;
+    const valid = validateDeck(editableDeck());
+    elements.saveDeckButton.disabled = !deckDirty || !valid.ok;
+    elements.saveDeckButton.textContent = deckDirty ? "Save Deck" : "Deck Saved";
+    elements.deckSaveState.textContent = text || (deckDirty
+      ? valid.ok ? "Unsaved changes. Save this deck to use it in games." : valid.message
+      : "Saved deck is ready for games.");
+    elements.deckSaveState.classList.toggle("error", !valid.ok);
+    elements.deckSaveState.classList.toggle("unsaved", deckDirty && valid.ok);
+  }
+
+  function validateDeck(ids) {
+    const uniqueIds = [...new Set(ids || [])].filter((id) => cardsById[id]);
+    if (uniqueIds.length !== ACTIVE_PER_KIND * 3) return { ok: false, message: "Deck must have exactly 18 different cards." };
+    for (const kind of ["hero", "armor", "weapon"]) {
+      if (uniqueIds.filter((id) => cardsById[id]?.kind === kind).length !== ACTIVE_PER_KIND) {
+        return { ok: false, message: "Deck must have 6 Heroes, 6 Armors, and 6 Weapons." };
+      }
+    }
+    return { ok: true, message: "" };
+  }
+
+  function installSavedDeck(ids, message = "") {
+    const uniqueIds = [...new Set(ids || [])].filter((id) => cardsById[id]);
+    const valid = validateDeck(uniqueIds);
+    if (!valid.ok) return false;
+    uniqueIds.forEach((id) => {
+      if (!collection.owned[id]) collection.owned[id] = { level: 0, progress: 0, isNew: false };
+    });
+    collection.activeDeck = uniqueIds;
+    saveCollection();
+    if (!elements.deckModal.hidden && !deckDirty) {
+      draftDeck = [...collection.activeDeck];
+      renderDeck();
+      if (message) elements.deckMessage.textContent = message;
+    }
+    return true;
+  }
+
+  async function saveDeck() {
+    const activeDeck = [...editableDeck()];
+    const valid = validateDeck(activeDeck);
+    if (!valid.ok) {
+      elements.deckMessage.textContent = valid.message;
+      renderDeckSaveState(valid.message);
+      return;
+    }
+    collection.activeDeck = activeDeck;
+    saveCollection();
+    deckDirty = false;
+    pendingSwap = null;
+    renderDeckSaveState("Saved on this device.");
+    elements.deckMessage.textContent = "Saved. Games will now draft from this active 18-card deck.";
+    renderDeck();
+    const saveOnline = window.ArponOnline?.saveAccountDeck;
+    if (!saveOnline || !window.ArponOnline?.getAccountProfile?.()) {
+      renderDeckSaveState("Saved on this device. Sign in to save the deck to your account.");
+      return;
+    }
+    renderDeckSaveState("Saving deck to account...");
+    try {
+      await saveOnline(collection.activeDeck);
+      renderDeckSaveState("Saved to your account. This deck stays active until you save a new one.");
+    } catch (error) {
+      deckDirty = true;
+      renderDeckSaveState(error?.message || "Could not save deck to account.");
+    }
+  }
+
   function renderDeck() {
     renderCoinPills();
+    renderDeckSaveState();
     elements.deckSwapBar.hidden = !pendingSwap;
     if (pendingSwap) elements.deckSwapText.textContent = `Swap ${cardsById[pendingSwap].name}: choose another ${cardsById[pendingSwap].kind}.`;
     elements.activeDeckColumns.innerHTML = ["hero", "armor", "weapon"].map((kind) => deckColumn(kind, true)).join("");
@@ -155,9 +236,10 @@
   }
 
   function deckColumn(kind, activeOnly) {
+    const activeDeck = editableDeck();
     const ids = activeOnly
-      ? collection.activeDeck.filter((id) => cardsById[id]?.kind === kind)
-      : ownedIds(kind).filter((id) => !collection.activeDeck.includes(id));
+      ? activeDeck.filter((id) => cardsById[id]?.kind === kind)
+      : ownedIds(kind).filter((id) => !activeDeck.includes(id));
     return `<section class="deck-column ${activeOnly ? "active-column" : "owned-column"}">
       <h3>${kind === "hero" ? "Heroes" : `${titleCase(kind)}s`} <span>${ids.length}${activeOnly ? `/${ACTIVE_PER_KIND}` : ""}</span></h3>
       <div class="collection-card-list">${ids.length ? ids.map((id) => collectionCard(id, activeOnly)).join("") : `<p class="empty-collection">No extra ${kind} cards yet.</p>`}</div>
@@ -223,16 +305,17 @@
 
   function finishSwap(replacementId) {
     if (!pendingSwap || !cardsById[replacementId] || cardsById[pendingSwap].kind !== cardsById[replacementId].kind) return;
-    const index = collection.activeDeck.indexOf(pendingSwap);
+    const activeDeck = editableDeck();
+    const index = activeDeck.indexOf(pendingSwap);
     if (index < 0) return;
-    if (collection.activeDeck.includes(replacementId)) {
+    if (activeDeck.includes(replacementId)) {
       elements.deckMessage.textContent = "That card is already active.";
       return;
     }
-    collection.activeDeck[index] = replacementId;
+    activeDeck[index] = replacementId;
     pendingSwap = null;
-    saveCollection();
-    elements.deckMessage.textContent = "Saved. Games will now draft from this active 18-card deck.";
+    deckDirty = true;
+    elements.deckMessage.textContent = "Deck changed. Press Save Deck to use it in future games.";
     renderDeck();
   }
 
@@ -495,9 +578,26 @@
     return parts.length ? `Creator reward claimed: ${parts.join(", ")}.` : "";
   }
 
+  async function loadAccountDeckFromAccount() {
+    const loadOnline = window.ArponOnline?.loadAccountDeck;
+    if (!loadOnline || !window.ArponOnline?.getAccountProfile?.()) return false;
+    try {
+      const ids = await loadOnline();
+      if (!Array.isArray(ids) || !ids.length) return false;
+      return installSavedDeck(ids, "Loaded your saved account deck.");
+    } catch (error) {
+      if (!/save_arpon_account_deck|get_arpon_account_deck|function .* does not exist|schema cache/i.test(String(error?.message || error || ""))) {
+        console.warn("Could not load saved account deck", error);
+      }
+      return false;
+    }
+  }
+
   function onAccountChanged(profile) {
     ownerKey = ownerStorageKey(profile);
     collection = loadCollection(ownerKey);
+    draftDeck = null;
+    deckDirty = false;
     pendingSwap = null;
     pendingUpgrade = null;
     renderCoinPills();
@@ -530,8 +630,11 @@
   elements.closeDeckButton?.addEventListener("click", () => {
     elements.deckModal.hidden = true;
     elements.upgradeOverlay.hidden = true;
+    draftDeck = null;
+    deckDirty = false;
     returnHome();
   });
+  elements.saveDeckButton?.addEventListener("click", saveDeck);
   elements.closeShopButton?.addEventListener("click", () => {
     elements.shopModal.hidden = true;
     elements.shopModal.classList.remove("opening-pack");
@@ -577,5 +680,15 @@
     return cards.map((card) => ({ id: card.id, name: card.name, family: card.family, kind: card.kind }));
   }
 
-  window.ArponCollection = { activeDeckIds, activeDeckIdsForTeam, cosmeticLevel, markSeen, awardCoins, applyAccountGrants, cardCatalog, onAccountChanged };
+  window.ArponCollection = {
+    activeDeckIds,
+    activeDeckIdsForTeam,
+    cosmeticLevel,
+    markSeen,
+    awardCoins,
+    applyAccountGrants,
+    loadAccountDeckFromAccount,
+    cardCatalog,
+    onAccountChanged,
+  };
 })();
