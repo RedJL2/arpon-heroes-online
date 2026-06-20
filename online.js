@@ -18,6 +18,7 @@ const onlineElements = Object.fromEntries(
     "sendBattleInviteButton", "friendsMessage", "friendsList", "friendRequestsList", "friendMessagesList",
     "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleRankedInput",
     "adminButton", "adminModal", "closeAdminButton", "adminStats", "adminMessage", "adminAccountList",
+    "adminGrantUsername", "adminGrantCoins", "adminGrantCoinsButton", "adminGrantCardSelect", "adminGrantCardButton",
     "passwordChange", "currentPassword", "newPassword", "changePasswordButton",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
@@ -52,6 +53,7 @@ const account = {
 const leaderboard = { metric: "ranked_wins", page: 0, rows: [] };
 let presenceTimer = null;
 let socialTimer = null;
+let grantClaimBusy = false;
 
 function playerName() {
   const entered = onlineElements.onlinePlayerName.value.trim();
@@ -500,6 +502,24 @@ function renderAccount() {
   window.ArponCollection?.onAccountChanged?.(profile);
 }
 
+function isGrantSetupMissing(error) {
+  return /claim_arpon_account_grants|admin_grant_arpon|function .* does not exist|schema cache/i.test(String(error?.message || error || ""));
+}
+
+async function claimAccountGrants() {
+  if (!account.token || !account.profile || grantClaimBusy || !window.ArponCollection?.applyAccountGrants) return;
+  grantClaimBusy = true;
+  try {
+    const grants = await rpc("claim_arpon_account_grants", { p_session_token: account.token });
+    const message = window.ArponCollection.applyAccountGrants(grants);
+    if (message) setAccountMessage(message);
+  } catch (error) {
+    if (!isGrantSetupMissing(error)) console.warn("Could not claim creator rewards", error);
+  } finally {
+    grantClaimBusy = false;
+  }
+}
+
 async function refreshAccount() {
   if (!account.token) {
     account.profile = null;
@@ -516,6 +536,7 @@ async function refreshAccount() {
     localStorage.removeItem("arpon-account-session");
   }
   renderAccount();
+  claimAccountGrants();
 }
 
 async function submitAccount(create) {
@@ -534,6 +555,7 @@ async function submitAccount(create) {
     onlineElements.accountPassword.value = "";
     renderAccount();
     touchPresence();
+    claimAccountGrants();
     if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
   } catch (error) {
     setAccountMessage(error.message, true);
@@ -558,7 +580,10 @@ async function changePassword() {
 }
 
 function touchPresence() {
-  if (account.token) rpc("touch_arpon_presence", { p_session_token: account.token }).catch(() => {});
+  if (account.token) {
+    rpc("touch_arpon_presence", { p_session_token: account.token }).catch(() => {});
+    claimAccountGrants();
+  }
 }
 
 async function logoutAccount() {
@@ -678,20 +703,37 @@ async function showAdmin() {
   if (!account.profile?.is_admin) return;
   onlineElements.adminModal.hidden = false;
   onlineElements.adminAccountList.textContent = "Loading accounts...";
+  populateAdminCardSelect();
   try {
     const data = await rpc("get_arpon_admin_dashboard", { p_session_token: account.token });
     onlineElements.adminStats.innerHTML = `<div><strong>${data.online_accounts}</strong><span>signed-in online</span></div><div><strong>${data.active_room_players}</strong><span>room players online</span></div><div><strong>${data.active_games}</strong><span>active games</span></div><div><strong>${data.accounts.length}</strong><span>accounts</span></div>`;
     onlineElements.adminAccountList.innerHTML = data.accounts.map((item) => `
       <article class="${item.online ? "online" : ""}">
         <div><strong>${escapeOnline(item.username)}</strong><span>${item.online ? "Online" : "Offline"} · Created ${new Date(item.created_at).toLocaleDateString()}</span></div>
-        <p>${item.ranked_wins}–${item.ranked_losses} ranked · ${item.solo_wins}–${item.solo_losses} robot</p>
-        ${item.is_admin ? "<em>Protected creator account</em>" : `<div>${item.locked_until && new Date(item.locked_until) > new Date() ? `<button data-admin-unlock="${escapeOnline(item.username)}" type="button">Unlock Account</button>` : ""}<button data-admin-reset="${escapeOnline(item.username)}" type="button">Reset Record</button><button data-admin-delete="${escapeOnline(item.username)}" type="button">Delete Account</button></div>`}
+        <p>${item.ranked_wins}–${item.ranked_losses} ranked · ${item.solo_wins}–${item.solo_losses} robot${item.pending_grants ? ` · ${item.pending_grants} reward${item.pending_grants === 1 ? "" : "s"} pending` : ""}</p>
+        ${item.is_admin ? "<em>Protected creator account</em>" : `<div><button data-admin-pick="${escapeOnline(item.username)}" type="button">Grant Reward</button>${item.locked_until && new Date(item.locked_until) > new Date() ? `<button data-admin-unlock="${escapeOnline(item.username)}" type="button">Unlock Account</button>` : ""}<button data-admin-reset="${escapeOnline(item.username)}" type="button">Reset Record</button><button data-admin-delete="${escapeOnline(item.username)}" type="button">Delete Account</button></div>`}
       </article>`).join("");
     bindAdminActions();
   } catch (error) { onlineElements.adminMessage.textContent = error.message; }
 }
 
+function populateAdminCardSelect() {
+  const select = onlineElements.adminGrantCardSelect;
+  if (!select || select.options.length) return;
+  const catalog = window.ArponCollection?.cardCatalog?.() || window.ArponGame?.cards || [];
+  select.innerHTML = catalog.map((card) => {
+    const kind = String(card.kind || "").replace(/^./, (letter) => letter.toUpperCase());
+    const family = card.family && card.family !== card.name ? ` · ${escapeOnline(card.family)}` : "";
+    return `<option value="${escapeOnline(card.id)}">${kind}${family} · ${escapeOnline(card.name)}</option>`;
+  }).join("");
+}
+
 function bindAdminActions() {
+  onlineElements.adminAccountList.querySelectorAll("[data-admin-pick]").forEach((button) => button.addEventListener("click", () => {
+    onlineElements.adminGrantUsername.value = button.dataset.adminPick;
+    onlineElements.adminGrantUsername.focus();
+    onlineElements.adminMessage.textContent = `Ready to grant a reward to ${button.dataset.adminPick}.`;
+  }));
   onlineElements.adminAccountList.querySelectorAll("[data-admin-unlock]").forEach((button) => button.addEventListener("click", async () => {
     try {
       await rpc("admin_unlock_arpon_account", { p_session_token: account.token, p_username: button.dataset.adminUnlock });
@@ -712,6 +754,43 @@ function bindAdminActions() {
       showAdmin();
     } catch (error) { onlineElements.adminMessage.textContent = error.message; }
   }));
+}
+
+function adminGrantErrorMessage(error) {
+  return isGrantSetupMissing(error)
+    ? "Run supabase-admin-grants-update.sql in Supabase SQL Editor once, then try the grant again."
+    : error.message;
+}
+
+async function grantAdminCoins() {
+  const username = onlineElements.adminGrantUsername.value.trim();
+  const amount = Number(onlineElements.adminGrantCoins.value || 0);
+  if (!username) return onlineElements.adminMessage.textContent = "Choose or type the exact player username first.";
+  if (!Number.isFinite(amount) || amount < 1) return onlineElements.adminMessage.textContent = "Coin amount must be at least 1.";
+  onlineElements.adminMessage.textContent = `Giving ${amount} coin${amount === 1 ? "" : "s"} to ${username}...`;
+  try {
+    await rpc("admin_grant_arpon_coins", { p_session_token: account.token, p_username: username, p_amount: amount });
+    onlineElements.adminMessage.textContent = `${username} will receive ${amount} coin${amount === 1 ? "" : "s"} the next time their account syncs.`;
+    showAdmin();
+  } catch (error) {
+    onlineElements.adminMessage.textContent = adminGrantErrorMessage(error);
+  }
+}
+
+async function grantAdminCard() {
+  const username = onlineElements.adminGrantUsername.value.trim();
+  const cardId = onlineElements.adminGrantCardSelect.value;
+  const cardName = onlineElements.adminGrantCardSelect.selectedOptions[0]?.textContent || "card";
+  if (!username) return onlineElements.adminMessage.textContent = "Choose or type the exact player username first.";
+  if (!cardId) return onlineElements.adminMessage.textContent = "Choose a card first.";
+  onlineElements.adminMessage.textContent = `Giving ${cardName} to ${username}...`;
+  try {
+    await rpc("admin_grant_arpon_card", { p_session_token: account.token, p_username: username, p_card_id: cardId });
+    onlineElements.adminMessage.textContent = `${username} will receive ${cardName} the next time their account syncs.`;
+    showAdmin();
+  } catch (error) {
+    onlineElements.adminMessage.textContent = adminGrantErrorMessage(error);
+  }
 }
 
 async function recordGameComplete(result, attempt = 0, context = null) {
@@ -830,6 +909,8 @@ onlineElements.sendFriendRequestButton.addEventListener("click", sendFriendReque
 onlineElements.sendFriendMessageButton.addEventListener("click", sendFriendMessage);
 onlineElements.sendBattleInviteButton.addEventListener("click", sendFriendlyBattleInvite);
 onlineElements.adminButton.addEventListener("click", showAdmin);
+onlineElements.adminGrantCoinsButton.addEventListener("click", grantAdminCoins);
+onlineElements.adminGrantCardButton.addEventListener("click", grantAdminCard);
 onlineElements.closeAdminButton.addEventListener("click", () => {
   onlineElements.adminModal.hidden = true;
 });

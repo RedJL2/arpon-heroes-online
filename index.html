@@ -476,7 +476,7 @@
             <button class="tool-button" id="closeDeckButton" type="button">Close</button>
           </div>
         </div>
-        <p class="collection-message" id="deckMessage">Your active deck must always be 6 Heroes, 6 Armors, and 6 Weapons.</p>
+        <p class="collection-message" id="deckMessage">Your active 18-card deck must always be 6 Heroes, 6 Armors, and 6 Weapons.</p>
         <div class="deck-builder-layout">
           <section class="deck-zone active-deck-zone">
             <div class="collection-section-title"><strong>Active Deck</strong><span>18 cards used for games</span></div>
@@ -551,6 +551,22 @@
           <button class="tool-button" id="closeAdminButton" type="button">Close</button>
         </div>
         <div class="admin-stats" id="adminStats"></div>
+        <div class="admin-grant-panel">
+          <label>
+            <span>Player username</span>
+            <input id="adminGrantUsername" type="text" placeholder="Exact username" autocomplete="off" />
+          </label>
+          <label>
+            <span>Coins</span>
+            <input id="adminGrantCoins" type="number" min="1" max="999" value="4" />
+          </label>
+          <button class="primary-action" id="adminGrantCoinsButton" type="button">Give Coins</button>
+          <label class="admin-card-grant">
+            <span>Specific card</span>
+            <select id="adminGrantCardSelect"></select>
+          </label>
+          <button class="primary-action" id="adminGrantCardButton" type="button">Give Card</button>
+        </div>
         <p class="online-message" id="adminMessage">Passwords are never visible, including to the creator.</p>
         <div class="admin-account-list" id="adminAccountList"></div>
       </section>

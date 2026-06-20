@@ -92,6 +92,11 @@
     renderCoinPills();
   }
 
+  function reloadSavedCollection() {
+    collection = loadCollection(ownerKey);
+    return collection;
+  }
+
   function isModView() {
     return window.ArponOnline?.getAccountProfile?.()?.username === "MODVIEW";
   }
@@ -109,7 +114,7 @@
     pendingSwap = null;
     pendingUpgrade = null;
     elements.deckModal.hidden = false;
-    elements.deckMessage.textContent = message || "Your active deck must always be 6 Heroes, 6 Armors, and 6 Weapons.";
+    elements.deckMessage.textContent = message || "Your active 18-card deck must always be 6 Heroes, 6 Armors, and 6 Weapons.";
     renderDeck();
     resetModalScroll(elements.deckModal);
   }
@@ -180,7 +185,8 @@
         ${progressSegments(needed || 1, owned.progress)}
       </div>
       <div class="collection-card-actions">
-        ${activeCard ? `<button data-start-swap="${id}" type="button">Swap</button>` : selectableReplacement ? `<button data-finish-swap="${id}" type="button">Use This</button>` : `<button data-view-card="${id}" type="button">View</button>`}
+        <button data-view-card="${id}" type="button">View</button>
+        ${activeCard ? `<button data-start-swap="${id}" type="button">Swap</button>` : selectableReplacement ? `<button data-finish-swap="${id}" type="button">Use This</button>` : ""}
         ${canUpgrade ? `<button class="upgrade-mini-button" data-upgrade-card="${id}" type="button">Upgrade</button>` : ""}
       </div>
     </article>`;
@@ -226,7 +232,7 @@
     collection.activeDeck[index] = replacementId;
     pendingSwap = null;
     saveCollection();
-    elements.deckMessage.textContent = "Deck updated. Games will now draft from this active deck.";
+    elements.deckMessage.textContent = "Saved. Games will now draft from this active 18-card deck.";
     renderDeck();
   }
 
@@ -253,7 +259,7 @@
     owned.level = clampTier(owned.level + 1);
     saveCollection();
     elements.upgradeOverlay.hidden = true;
-    elements.deckMessage.textContent = "Upgrade complete. The cosmetic now appears on cards and board tokens.";
+    elements.deckMessage.textContent = "Saved. The cosmetic now appears on cards and board tokens.";
     renderDeck();
   }
 
@@ -293,12 +299,19 @@
 
   function addCardResult(id) {
     const card = cardsById[id];
+    const result = grantCardToCollection(id);
+    return { card, duplicate: result?.duplicate, level: collection.owned[id]?.level || 0, progress: collection.owned[id]?.progress || 0 };
+  }
+
+  function grantCardToCollection(id) {
+    const card = cardsById[id];
+    if (!card) return null;
     if (!collection.owned[id]) {
       collection.owned[id] = { level: 0, progress: 0, isNew: true };
-      return { card, duplicate: false, level: 0, progress: 0 };
+      return { card, duplicate: false };
     }
     collection.owned[id].progress += 1;
-    return { card, duplicate: true, level: collection.owned[id].level, progress: collection.owned[id].progress };
+    return { card, duplicate: true };
   }
 
   function openPackAnimation(type, results) {
@@ -420,6 +433,7 @@
   }
 
   function activeDeckIds() {
+    reloadSavedCollection();
     return [...collection.activeDeck];
   }
 
@@ -443,6 +457,42 @@
     if (isModView()) return;
     collection.coins += Number(amount) || 0;
     saveCollection();
+  }
+
+  function applyAccountGrants(grants = []) {
+    const applied = { coins: 0, newCards: [], duplicates: [], ignored: 0 };
+    let changed = false;
+    grants.forEach((grant) => {
+      if (grant?.grant_type === "coins") {
+        const amount = Math.max(0, Number(grant.amount || 0));
+        if (!amount) return;
+        if (!isModView()) collection.coins += amount;
+        applied.coins += amount;
+        changed = true;
+        return;
+      }
+      if (grant?.grant_type === "card") {
+        const result = grantCardToCollection(grant.card_id);
+        if (!result) {
+          applied.ignored += 1;
+          return;
+        }
+        if (result.duplicate) applied.duplicates.push(result.card.name);
+        else applied.newCards.push(result.card.name);
+        changed = true;
+      }
+    });
+    if (!changed) return "";
+    saveCollection();
+    if (!elements.deckModal.hidden) renderDeck();
+    const parts = [];
+    if (applied.coins) parts.push(`${applied.coins} coin${applied.coins === 1 ? "" : "s"}`);
+    if (applied.newCards.length) parts.push(`${applied.newCards.length} new card${applied.newCards.length === 1 ? "" : "s"}`);
+    if (applied.duplicates.length) parts.push(`${applied.duplicates.length} duplicate${applied.duplicates.length === 1 ? "" : "s"}`);
+    if (elements.deckMessage && !elements.deckModal.hidden && parts.length) {
+      elements.deckMessage.textContent = `Creator reward claimed: ${parts.join(", ")}.`;
+    }
+    return parts.length ? `Creator reward claimed: ${parts.join(", ")}.` : "";
   }
 
   function onAccountChanged(profile) {
@@ -515,6 +565,17 @@
     if (event.target.closest(".sealed-pack, .revealed-card")) event.preventDefault();
   });
 
+  window.addEventListener("storage", (event) => {
+    if (event.key !== ownerKey) return;
+    reloadSavedCollection();
+    if (!elements.deckModal.hidden) renderDeck();
+    renderCoinPills();
+  });
+
   renderCoinPills();
-  window.ArponCollection = { activeDeckIds, activeDeckIdsForTeam, cosmeticLevel, markSeen, awardCoins, onAccountChanged };
+  function cardCatalog() {
+    return cards.map((card) => ({ id: card.id, name: card.name, family: card.family, kind: card.kind }));
+  }
+
+  window.ArponCollection = { activeDeckIds, activeDeckIdsForTeam, cosmeticLevel, markSeen, awardCoins, applyAccountGrants, cardCatalog, onAccountChanged };
 })();
