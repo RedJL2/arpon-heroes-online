@@ -224,6 +224,10 @@ button:disabled {
   gap: 16px;
 }
 
+body.command-panel-collapsed .arena-layout {
+  grid-template-columns: minmax(245px, 300px) minmax(560px, 1fr) 68px;
+}
+
 .panel {
   overflow: hidden;
   border: 1px solid #bfc2c6;
@@ -237,6 +241,30 @@ button:disabled {
   align-self: start;
   max-height: calc(100vh - 116px);
   overflow-y: auto;
+}
+
+.command-panel-toggle {
+  position: sticky;
+  z-index: 5;
+  top: 0;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-bottom: 3px solid #292c31;
+  background: #292c31;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+body.command-panel-collapsed .command-panel {
+  overflow: hidden;
+}
+
+body.command-panel-collapsed .command-panel > :not(.command-panel-toggle) {
+  display: none;
 }
 
 .panel-heading {
@@ -575,6 +603,9 @@ button:disabled {
   border: 1px solid #292c30;
   object-fit: contain;
   image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .chip-portrait {
@@ -1035,7 +1066,7 @@ button:disabled {
 
 .pawn.selected {
   transform: rotate(var(--counter-rotation, 0deg)) translateY(-3px);
-  box-shadow: 0 0 0 4px #f2cb44, 0 0 0 7px var(--team-color), 4px 7px 0 rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 5px #050505, 0 0 0 8px #fff, 4px 7px 0 rgba(0, 0, 0, 0.3);
 }
 
 .pawn.targetable {
@@ -1262,6 +1293,10 @@ button:disabled {
   z-index: 236;
 }
 
+.tutorial-prompt-backdrop {
+  z-index: 245;
+}
+
 .roll-prompt-modal {
   pointer-events: auto;
 }
@@ -1337,6 +1372,49 @@ button:disabled {
   font-size: 1.2rem;
   font-weight: 900;
   line-height: 1.45;
+}
+
+.tutorial-prompt-modal {
+  width: min(620px, 100%);
+  border-color: #2caf59;
+  box-shadow: 8px 8px 0 #1d8d47, var(--shadow);
+  text-align: center;
+}
+
+.tutorial-prompt-modal h2 {
+  color: #1d8d47;
+}
+
+.tutorial-coach {
+  position: fixed;
+  z-index: 80;
+  right: 18px;
+  bottom: 18px;
+  width: min(390px, calc(100vw - 36px));
+  padding: 13px 15px;
+  border: 4px solid #eee8d5;
+  border-left-color: #2caf59;
+  border-radius: 5px;
+  background:
+    linear-gradient(rgba(33, 36, 39, 0.93), rgba(33, 36, 39, 0.93)),
+    url("./assets/stone-wall.png") center / 420px auto;
+  color: #fff;
+  box-shadow: 7px 8px 0 rgba(0, 0, 0, 0.36);
+}
+
+.tutorial-coach strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #5ee284;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.tutorial-coach p {
+  margin: 0;
+  color: #f1eee2;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .dice-result-overlay {
@@ -1506,13 +1584,18 @@ body.draft-mode .hero-list {
   min-height: 170px;
   padding: 22px 26px;
   align-items: center;
-  grid-template-columns: 230px 1fr 220px;
+  grid-template-columns: 230px 1fr 240px;
   border-bottom: 5px solid #292c31;
   background:
     linear-gradient(rgba(34, 35, 36, 0.88), rgba(34, 35, 36, 0.88)),
     url("./assets/stone-wall.png") center / 520px auto;
   color: #fff;
   gap: 24px;
+}
+
+.home-guide-actions {
+  display: grid;
+  gap: 10px;
 }
 
 .home-header > img {
@@ -1540,7 +1623,7 @@ body.draft-mode .hero-list {
 
 .guide-action {
   display: grid;
-  min-height: 94px;
+  min-height: 82px;
   padding: 13px;
   align-content: center;
   border: 4px solid #ede8d6;
@@ -1551,6 +1634,11 @@ body.draft-mode .hero-list {
   cursor: pointer;
   gap: 4px;
   text-align: left;
+}
+
+.tutorial-action {
+  background: #24272d;
+  box-shadow: 5px 5px 0 var(--red);
 }
 
 .guide-action strong {
@@ -3116,7 +3204,7 @@ body.draft-mode .hero-list {
   background:
     linear-gradient(rgba(18, 19, 21, 0.86), rgba(18, 19, 21, 0.86)),
     url("./assets/stone-wall.png") center / 620px auto;
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .set-preview-modal {
@@ -3172,6 +3260,52 @@ body.draft-mode .hero-list {
   box-shadow: 5px 6px 0 rgba(0, 0, 0, 0.32);
 }
 
+.set-context-summary {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  border-color: #1f7d3c;
+  border-top-color: #25b85a;
+  background:
+    linear-gradient(rgba(235, 255, 241, 0.94), rgba(235, 255, 241, 0.94)),
+    url("./assets/stone-wall.png") center / 360px auto;
+}
+
+.set-context-summary > strong {
+  grid-column: 1 / -1;
+  color: #15783d;
+  font-size: 0.9rem;
+}
+
+.context-stat {
+  display: grid;
+  min-height: 48px;
+  padding: 8px;
+  border: 2px solid #207d42;
+  background: #f7fff7;
+  gap: 2px;
+}
+
+.context-stat span {
+  color: #4c6253;
+  font-size: 0.56rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.context-stat b {
+  color: #137538;
+  font-size: 0.98rem;
+}
+
+.set-context-summary p {
+  margin: 0;
+  color: #1f5633;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .set-preview-cards img {
   width: 100%;
   min-height: 0;
@@ -3181,6 +3315,8 @@ body.draft-mode .hero-list {
   object-fit: contain;
   background: #111;
   image-rendering: pixelated;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .set-preview-cards strong {
@@ -3374,11 +3510,19 @@ body.draft-mode .hero-list {
     grid-template-columns: 240px minmax(520px, 1fr);
   }
 
+  body.command-panel-collapsed .arena-layout {
+    grid-template-columns: 240px minmax(520px, 1fr);
+  }
+
   .command-panel {
     grid-column: 1 / -1;
     display: grid;
     max-height: none;
     grid-template-columns: 300px 1fr;
+  }
+
+  body.command-panel-collapsed .command-panel {
+    display: block;
   }
 
   .tabs,
@@ -3400,7 +3544,7 @@ body.draft-mode .hero-list {
     grid-template-columns: 150px 1fr;
   }
 
-  .guide-action {
+  .home-guide-actions {
     grid-column: 1 / -1;
   }
 
@@ -3429,7 +3573,8 @@ body.draft-mode .hero-list {
 
   .deck-columns,
   .shop-layout,
-  .upgrade-preview {
+  .upgrade-preview,
+  .set-context-summary {
     grid-template-columns: 1fr;
   }
 
@@ -3610,6 +3755,10 @@ body.draft-mode .hero-list {
     display: block;
   }
 
+  body.command-panel-collapsed .command-panel {
+    display: block;
+  }
+
   .card-stack {
     grid-template-columns: 1fr;
   }
@@ -3669,12 +3818,23 @@ body.draft-mode .hero-list {
     gap: 7px;
   }
 
+  .set-context-summary {
+    grid-column: auto;
+  }
+
   .set-preview-cards article {
     padding: 4px;
   }
 
   .set-preview-cards img {
     max-height: none;
+  }
+
+  .tutorial-coach {
+    right: 10px;
+    bottom: 64px;
+    left: 10px;
+    width: auto;
   }
 
   .friendly-battle-settings {

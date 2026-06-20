@@ -7,7 +7,7 @@ const PRESENCE_INTERVAL = 20000;
 const onlineElements = Object.fromEntries(
   [
     "lobbyModal", "homeMenuPanel", "playMenuPanel", "localSetupPanel", "soloSetupPanel", "privateSetupPanel", "openPlayButton", "openLocalButton", "openSoloButton", "openPrivateButton", "findMatchButton",
-    "homeRulesButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
+    "homeRulesButton", "tutorialBattleButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
     "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
     "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput",
@@ -583,6 +583,7 @@ async function submitAccount(create) {
     claimAccountGrants();
     window.ArponCollection?.loadAccountDeckFromAccount?.();
     if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
+    if (create) window.ArponGame?.promptTutorial?.();
   } catch (error) {
     setAccountMessage(error.message, true);
   }

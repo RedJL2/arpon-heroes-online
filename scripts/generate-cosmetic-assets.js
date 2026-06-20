@@ -83,20 +83,19 @@ function convertToPng(source, output) {
 }
 
 function tintCardArtWindow(image, target) {
-  const x1 = Math.round(image.width * 0.18);
-  const x2 = Math.round(image.width * 0.82);
-  const y1 = Math.round(image.height * 0.26);
-  const y2 = Math.round(image.height * 0.58);
+  const x1 = Math.round(image.width * 0.17);
+  const x2 = Math.round(image.width * 0.83);
+  const y1 = Math.round(image.height * 0.32);
+  const y2 = Math.round(image.height * 0.59);
   const visited = new Uint8Array(image.width * image.height);
-  const seeds = [
-    [x1 + 42, y1 + 42],
-    [x2 - 42, y1 + 42],
-    [x1 + 42, y2 - 42],
-    [x2 - 42, y2 - 42],
-    [Math.round((x1 + x2) / 2), y1 + 38],
-    [Math.round((x1 + x2) / 2), y2 - 38],
-  ];
-  const queue = seeds.filter(([x, y]) => x >= x1 && x < x2 && y >= y1 && y < y2 && isCardBackdropPixel(image, x, y));
+  const queue = [
+    [x1 + 8, y1 + 8],
+    [x2 - 8, y1 + 8],
+    [x1 + 8, y2 - 8],
+    [x2 - 8, y2 - 8],
+    [Math.round((x1 + x2) / 2), y1 + 8],
+    [Math.round((x1 + x2) / 2), y2 - 8],
+  ].filter(([x, y]) => isCardBackdropPixel(image, x, y));
   while (queue.length) {
     const [x, y] = queue.pop();
     if (x < x1 || y < y1 || x >= x2 || y >= y2) continue;
@@ -122,7 +121,7 @@ function isCardBackdropPixel(image, x, y) {
   if (a < 20) return false;
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
-  return max > 145 && max - min < 92;
+  return max > 184 && max - min < 54;
 }
 
 function tintConnectedBackground(image, target) {

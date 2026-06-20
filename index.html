@@ -70,6 +70,7 @@
         </section>
 
         <aside class="command-panel panel">
+          <button class="command-panel-toggle" id="commandPanelToggle" type="button" aria-expanded="true">Hide Details</button>
           <div class="selected-card" id="selectedCard"></div>
 
           <div class="tabs" role="tablist" aria-label="Details">
@@ -97,10 +98,16 @@
             <h1 id="lobbyTitle">Choose Your Battle</h1>
             <p>Draft two Heroes, fortify the arena, and outfight every rival squad.</p>
           </div>
-          <button class="guide-action" id="homeRulesButton" type="button">
-            <strong>How to Play</strong>
-            <span>Rules, setup, movement, and combat</span>
-          </button>
+          <div class="home-guide-actions">
+            <button class="guide-action tutorial-action" id="tutorialBattleButton" type="button">
+              <strong>Tutorial Battle</strong>
+              <span>Short guided robot match for learning strategy</span>
+            </button>
+            <button class="guide-action" id="homeRulesButton" type="button">
+              <strong>How to Play</strong>
+              <span>Rules, setup, movement, and combat</span>
+            </button>
+          </div>
         </header>
 
         <section class="home-panel" id="homeMenuPanel">
@@ -315,13 +322,30 @@
       <section class="set-preview-modal" aria-labelledby="setPreviewTitle">
         <div class="set-preview-heading">
           <div>
-            <p class="eyebrow">Complete Set · Release to close</p>
+            <p class="eyebrow">Complete Set · Tap anywhere to close</p>
             <h2 id="setPreviewTitle">Hero Set</h2>
           </div>
           <button class="card-zoom-close" id="closeSetPreviewButton" type="button" aria-label="Close set preview">X</button>
         </div>
         <div class="set-preview-cards" id="setPreviewCards"></div>
       </section>
+    </div>
+
+    <div class="modal-backdrop tutorial-prompt-backdrop" id="tutorialPromptModal" hidden>
+      <section class="modal tutorial-prompt-modal">
+        <p class="eyebrow">New player start</p>
+        <h2>Try a Short Tutorial Battle?</h2>
+        <p>Learn how to read enemy sets, make stronger pairs, move around walls, attack, and retreat in a guided robot game. It does not count toward your record.</p>
+        <div class="move-choice-actions">
+          <button class="secondary-action large" id="skipTutorialPromptButton" type="button">Not Now</button>
+          <button class="primary-action large" id="startTutorialPromptButton" type="button">Start Tutorial</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="tutorial-coach" id="tutorialCoach" hidden>
+      <strong>Training Tip</strong>
+      <p id="tutorialCoachText">Choose two cards from each type to make your first sets.</p>
     </div>
 
     <div class="modal-backdrop roll-prompt-backdrop" id="rollPromptModal" hidden>

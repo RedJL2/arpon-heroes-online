@@ -102,6 +102,7 @@ const state = {
   mode: "local",
   matchId: crypto.randomUUID(),
   ranked: false,
+  tutorialMode: false,
   robotTeams: [],
   timedRobotTeams: [],
   timeoutStrikes: {},
@@ -174,6 +175,7 @@ const deviceState = {
   resolvedAbilityRollKey: null,
   dismissedTurnEndNoticeToken: null,
   turnEndNoticeTimer: null,
+  commandPanelCollapsed: false,
 };
 
 const elements = Object.fromEntries(
@@ -188,7 +190,8 @@ const elements = Object.fromEntries(
     "moveChoiceModal", "moveChoiceMessage", "keepMovementButton", "finishMovementButton", "closeMoveChoiceButton",
     "stayConfirmModal", "stayConfirmMessage", "cancelStayButton", "confirmStayButton",
     "setPreviewModal", "setPreviewTitle", "setPreviewCards", "closeSetPreviewButton", "turnCounterLabel", "timerBlock", "timerLabel",
-    "turnEndedOverlay", "turnEndedPlayer", "muteButton", "squadDrawerButton",
+    "turnEndedOverlay", "turnEndedPlayer", "muteButton", "squadDrawerButton", "commandPanelToggle",
+    "tutorialBattleButton", "tutorialPromptModal", "startTutorialPromptButton", "skipTutorialPromptButton", "tutorialCoach", "tutorialCoachText",
   ].map((id) => [id, document.querySelector(`#${id}`)]),
 );
 
@@ -229,6 +232,7 @@ function resetToLobby() {
   state.mode = "local";
   state.matchId = crypto.randomUUID();
   state.ranked = false;
+  state.tutorialMode = false;
   state.robotTeams = [];
   state.timedRobotTeams = [];
   state.timeoutStrikes = {};
@@ -270,6 +274,7 @@ function resetToLobby() {
   deviceState.pendingStayMove = null;
   elements.moveChoiceModal.hidden = true;
   elements.stayConfirmModal.hidden = true;
+  if (elements.tutorialPromptModal) elements.tutorialPromptModal.hidden = true;
   state.turnNumber = 1;
   state.turnLimit = defaultTurnLimit(state.playerCount);
   state.log = [];
@@ -410,11 +415,12 @@ function draftPoolForTeam(team, kind, playerIndex = 0) {
   return shuffle(source).slice(0, 3);
 }
 
-function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit = TWO_PLAYER_TURN_LIMIT) {
+function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit = TWO_PLAYER_TURN_LIMIT, options = {}) {
   const robotTeams = enemyCount === 1 ? ["yellow"] : enemyCount === 2 ? ["green", "yellow"] : ["green", "yellow", "blue"];
   state.mode = "solo";
   state.matchId = crypto.randomUUID();
   state.ranked = false;
+  state.tutorialMode = Boolean(options.tutorial);
   state.robotTeams = robotTeams;
   state.timedRobotTeams = [];
   state.playerTeams = ["red", ...robotTeams];
@@ -434,6 +440,12 @@ function startSoloGame(enemyCount = 1, wallLimit = DEFAULT_WALL_LIMIT, turnLimit
     state.draftLocked[team] = true;
   });
   render();
+}
+
+function startTutorialGame() {
+  state.tutorialMode = true;
+  startSoloGame(1, 8, 12, { tutorial: true });
+  logEvent("Tutorial battle started. This training game will not affect your record.", "#2caf59");
 }
 
 function beginSoloArena() {
@@ -494,6 +506,8 @@ function render(sync = true) {
   renderTurnEndNotice();
   renderVictory();
   renderSetPreview();
+  renderTutorialCoach();
+  renderCommandPanelToggle();
   renderAudioButton();
   scheduleRobotAction();
   if (sync) window.ArponOnline?.onGameRendered?.(exportGameState());
@@ -504,6 +518,33 @@ function renderAudioButton() {
   elements.muteButton.textContent = muted ? "Muted" : "Sound";
   elements.muteButton.setAttribute("aria-pressed", String(muted));
   elements.muteButton.title = muted ? "Unmute sound" : "Mute sound";
+}
+
+function renderCommandPanelToggle() {
+  if (!elements.commandPanelToggle) return;
+  document.body.classList.toggle("command-panel-collapsed", deviceState.commandPanelCollapsed);
+  elements.commandPanelToggle.textContent = deviceState.commandPanelCollapsed ? "Show Details" : "Hide Details";
+  elements.commandPanelToggle.setAttribute("aria-expanded", String(!deviceState.commandPanelCollapsed));
+}
+
+function renderTutorialCoach() {
+  if (!elements.tutorialCoach) return;
+  const text = tutorialCoachText();
+  elements.tutorialCoach.hidden = !text;
+  if (text) elements.tutorialCoachText.textContent = text;
+}
+
+function tutorialCoachText() {
+  if (!state.tutorialMode || state.phase === "lobby") return "";
+  if (state.phase === "draft") return "Build two sets. Matching a Hero with its own Armor gives +100 HP; matching its Weapon gives more DP. Tap any set later to inspect its full abilities.";
+  if (state.phase === "place") return "Place both Heroes in your base. Keep one safer and one ready to pressure the robot's weak side.";
+  if (state.phase === "battleRoll") return "Roll once for movement. After the roll, you can split those steps between your two Heroes.";
+  if (state.phase === "move") return "Move before attacking. Look at enemy range and HP before spending your last steps.";
+  if (state.phase === "attack") return "Tap an enemy in range. Check its Armor first: some Armors block, reflect, or force ability rolls.";
+  if (state.phase === "retreatRoll") return "Any Hero that attacked now rolls retreat. Retreat can pull you out of enemy range.";
+  if (state.phase === "retreat") return "Choose a safer square or stay if that is best. Corners and walls still matter while retreating.";
+  if (state.phase === "complete") return "Tutorial complete. Try a real solo or online battle when you are ready.";
+  return "Follow the highlighted choices. This tutorial battle is only for learning and does not count toward records.";
 }
 
 function renderTopbar() {
@@ -1062,42 +1103,18 @@ function loadoutChip(loadout) {
     <span class="chip-meta">
       <span class="chip-title"><strong>${loadout.name}</strong><span class="chip-health-number">${currentHp}<small> / ${loadout.maxHp} HP</small></span></span>
       <i class="chip-health-bar"><b></b></i>
-      <small class="chip-hold-hint">Hold to inspect set</small>
+      <small class="chip-hold-hint">Tap to inspect set</small>
     </span>
   </button>`;
 }
 
 function bindLoadoutChipInteractions(button) {
   button.addEventListener("click", (event) => {
-    if (deviceState.suppressNextSetClick) {
-      event.preventDefault();
-      deviceState.suppressNextSetClick = false;
-      return;
-    }
+    event.preventDefault();
     selectLoadout(button.dataset.loadoutId);
+    openSetPreview(button.dataset.loadoutId);
   });
   button.addEventListener("contextmenu", (event) => event.preventDefault());
-  button.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-    clearTimeout(deviceState.setPreviewTimer);
-    button.setPointerCapture?.(event.pointerId);
-    deviceState.setPreviewTimer = setTimeout(() => {
-      deviceState.suppressNextSetClick = true;
-      openSetPreview(button.dataset.loadoutId);
-    }, 280);
-  });
-  const release = () => {
-    clearTimeout(deviceState.setPreviewTimer);
-    deviceState.setPreviewTimer = null;
-    if (deviceState.setPreviewId) {
-      closeSetPreview();
-      setTimeout(() => {
-        deviceState.suppressNextSetClick = false;
-      }, 0);
-    }
-  };
-  button.addEventListener("pointerup", release);
-  button.addEventListener("pointercancel", release);
 }
 
 function openSetPreview(loadoutId) {
@@ -1123,10 +1140,64 @@ function renderSetPreview() {
   }
   elements.setPreviewModal.style.setProperty("--preview-color", teams[loadout.team].color);
   elements.setPreviewTitle.textContent = `${displayName(loadout.team)} · Hero ${loadout.setNumber}: ${loadout.name}`;
-  elements.setPreviewCards.innerHTML = [loadout.hero, loadout.armor, loadout.weapon]
-    .map((card) => `<article><img src="${cardDisplayImage(card, loadout)}" alt="${card.name}" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`)
-    .join("");
+  elements.setPreviewCards.innerHTML = [
+    ...[loadout.hero, loadout.armor, loadout.weapon].map((card) => setPreviewCard(card, loadout)),
+    setContextSummary(loadout),
+  ].join("");
   elements.setPreviewModal.hidden = false;
+}
+
+function setPreviewCard(card, loadout) {
+  return `<article><img src="${cardDisplayImage(card, loadout)}" alt="${card.name}" draggable="false" /><strong>${card.name}</strong><span>${card.ability}: ${card.text}</span></article>`;
+}
+
+function setContextSummary(loadout) {
+  const attackNotes = possibleAttackNotes(loadout);
+  const defenseNotes = possibleDefenseNotes(loadout);
+  return `<article class="set-context-summary">
+    <strong>Set Context</strong>
+    <div class="context-stat"><span>Current HP</span><b>${Math.max(0, loadout.currentHp)} / ${loadout.maxHp}</b></div>
+    <div class="context-stat"><span>Base attack</span><b>${baseAttack(loadout)} DP</b></div>
+    <div class="context-stat"><span>Range</span><b>${titleCase(weaponPattern(loadout))} ${loadout.weapon.effects.range}</b></div>
+    <p>${attackNotes.length ? attackNotes.join(" · ") : "No extra attack roll bonus."}</p>
+    <p>${defenseNotes.length ? defenseNotes.join(" · ") : "No special defense bonus."}</p>
+  </article>`;
+}
+
+function possibleAttackNotes(loadout) {
+  const notes = [];
+  const heroHp = loadout.hero.effects.attackIfHpAbove;
+  if (heroHp) notes.push(loadout.currentHp >= heroHp.min ? `+${heroHp.amount} DP now from ${loadout.hero.ability}` : `+${heroHp.amount} DP if HP is at least ${heroHp.min}`);
+  const heroClose = loadout.hero.effects.closeAttackBonus;
+  if (heroClose) notes.push(`+${heroClose.amount} DP at range 1-${heroClose.max}`);
+  const weaponHp = loadout.weapon.effects.attackIfHpAbove;
+  if (weaponHp) notes.push(loadout.currentHp >= weaponHp.min ? `+${weaponHp.amount} DP now from ${loadout.weapon.ability}` : `+${weaponHp.amount} DP if HP is at least ${weaponHp.min}`);
+  const close = loadout.weapon.effects.closeBonus;
+  if (close) notes.push(`+${close.amount} DP at range 1-${close.max}`);
+  const rollBonus = loadout.weapon.effects.rollBonus;
+  if (rollBonus) notes.push(`+${rollBonus.amount} DP on ${rollRequirementText(rollBonus)}`);
+  const rangeBonus = loadout.weapon.effects.rangeRollBonus;
+  if (rangeBonus) notes.push(`+${rangeBonus.amount} range on ${rollRequirementText(rangeBonus)}`);
+  if (loadout.weapon.effects.hpThroughWalls) notes.push(loadout.currentHp >= loadout.weapon.effects.hpThroughWalls.min ? "Attacks through walls now" : `Attacks through walls at ${loadout.weapon.effects.hpThroughWalls.min}+ HP`);
+  const targetHp = loadout.weapon.effects.targetHpAboveBonus;
+  if (targetHp) notes.push(`+${targetHp.amount} DP vs enemies at ${targetHp.min}+ HP`);
+  return notes;
+}
+
+function possibleDefenseNotes(loadout) {
+  const notes = [];
+  const passiveReduce = (loadout.hero.effects.incomingReduce || 0) + (loadout.armor.effects.incomingReduce || 0);
+  if (passiveReduce) notes.push(`Blocks ${passiveReduce} DP`);
+  const threshold = loadout.armor.effects.reduceIfAttackAbove;
+  if (threshold) notes.push(`Blocks ${threshold.amount} DP when attack is above ${threshold.min}`);
+  const reduceRoll = loadout.armor.effects.reduceOnRoll;
+  if (reduceRoll) notes.push(`Blocks ${reduceRoll.amount} DP on ${rollRequirementText(reduceRoll)}`);
+  if (loadout.armor.effects.reflect) notes.push(`Reflects ${loadout.armor.effects.reflect} DP`);
+  if (loadout.hero.effects.enemyRangeReduce) notes.push(`Enemy range -${loadout.hero.effects.enemyRangeReduce}`);
+  if (loadout.armor.effects.dodgeBack) notes.push(`Steps back ${loadout.armor.effects.dodgeBack} before damage`);
+  const retreatPenalty = loadout.armor.effects.enemyRetreatPenaltyOnRoll;
+  if (retreatPenalty) notes.push(`Enemy retreat -${retreatPenalty.amount} on ${rollRequirementText(retreatPenalty)}`);
+  return notes;
 }
 
 function renderSelectedPanel() {
@@ -1506,6 +1577,7 @@ function beginRetreats() {
   state.phase = "retreatRoll";
   state.dice = null;
   state.retreatSteps = 0;
+  deviceState.rollActionLock = null;
   render();
 }
 
@@ -1516,6 +1588,7 @@ function finishCurrentRetreat() {
     deviceState.selectedSetId = state.retreatHeroId;
     state.phase = "retreatRoll";
     state.dice = null;
+    deviceState.rollActionLock = null;
   } else {
     state.retreatHeroId = null;
     completeTurnAutomatically();
@@ -2091,7 +2164,7 @@ function finishGame(winners, reason) {
   hideAttackReceipt();
   renderVictory();
   logEvent(`${elements.victoryTitle.textContent} ${reason}.`, winners.length === 1 ? teams[winners[0]].color : "#e7c64a");
-  window.ArponOnline?.onGameComplete?.({ matchId: state.matchId, mode: state.mode, ranked: state.ranked, winners });
+  if (!state.tutorialMode) window.ArponOnline?.onGameComplete?.({ matchId: state.matchId, mode: state.mode, ranked: state.ranked, winners });
   render();
 }
 
@@ -2372,6 +2445,7 @@ function startOnlineGame(players, turnLimit = null, wallLimit = DEFAULT_WALL_LIM
   state.mode = "online";
   state.matchId = matchId || crypto.randomUUID();
   state.ranked = Boolean(ranked);
+  state.tutorialMode = false;
   state.robotTeams = [];
   state.turnLimit = Number(turnLimit) || defaultTurnLimit(players.length);
   state.wallLimit = Number.isFinite(Number(wallLimit)) ? Number(wallLimit) : DEFAULT_WALL_LIMIT;
@@ -2429,12 +2503,27 @@ elements.muteButton.addEventListener("click", () => {
   window.ArponAudio?.toggle();
   renderAudioButton();
 });
+elements.commandPanelToggle?.addEventListener("click", () => {
+  deviceState.commandPanelCollapsed = !deviceState.commandPanelCollapsed;
+  renderCommandPanelToggle();
+});
+elements.tutorialBattleButton?.addEventListener("click", startTutorialGame);
+elements.startTutorialPromptButton?.addEventListener("click", () => {
+  elements.tutorialPromptModal.hidden = true;
+  startTutorialGame();
+});
+elements.skipTutorialPromptButton?.addEventListener("click", () => {
+  elements.tutorialPromptModal.hidden = true;
+});
 elements.squadDrawerButton.addEventListener("click", () => {
   const open = document.body.classList.toggle("squad-drawer-open");
   elements.squadDrawerButton.setAttribute("aria-expanded", String(open));
 });
 elements.resetButton.addEventListener("click", resetToLobby);
-elements.startGameButton.addEventListener("click", startGame);
+elements.startGameButton.addEventListener("click", () => {
+  state.tutorialMode = false;
+  startGame();
+});
 elements.turnLimitInput.addEventListener("input", () => {
   deviceState.turnLimitCustomized = true;
   state.turnLimit = Number(elements.turnLimitInput.value);
@@ -2496,7 +2585,7 @@ elements.closeMoveChoiceButton.addEventListener("click", closeMoveSpendChoice);
 elements.cancelStayButton.addEventListener("click", () => resolveStayConfirmation(false));
 elements.confirmStayButton.addEventListener("click", () => resolveStayConfirmation(true));
 elements.closeSetPreviewButton.addEventListener("click", closeSetPreview);
-elements.setPreviewModal.addEventListener("pointerup", closeSetPreview);
+elements.setPreviewModal.addEventListener("click", closeSetPreview);
 document.querySelectorAll(".tab").forEach((button) => button.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab === button));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("active", panel.id === `${button.dataset.tab}Panel`));
@@ -2508,6 +2597,10 @@ window.ArponGame = {
   replaceState: replaceGameState,
   reconcileOnlineState,
   startOnlineGame,
+  startTutorialGame,
+  promptTutorial: () => {
+    if (elements.tutorialPromptModal) elements.tutorialPromptModal.hidden = false;
+  },
   cards,
   cardDisplayImage,
   heroTokenImage,
