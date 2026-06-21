@@ -1434,8 +1434,8 @@ function onCellClick(x, y) {
   const move = getHighlights(selected).move.get(posKey(x, y));
   if (move && (!target || target.id === selected.id)) {
     if (["move", "retreat"].includes(state.phase) && move.returnMove) requestStayConfirmation(selected, move);
-    else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
-    else moveLoadoutTo(selected, move);
+    else if (shouldAskMoveSpendChoice(selected, move)) requestMoveSpendChoice(selected, move);
+    else moveLoadoutTo(selected, moveWithExactRouteIfNeeded(move));
   }
 }
 
@@ -1460,12 +1460,33 @@ function resolveStayConfirmation(confirmStay) {
 
 function requestMoveSpendChoice(loadout, move) {
   deviceState.pendingMoveChoice = { loadoutId: loadout.id, move };
-  const keep = Math.max(0, state.movementLeft - Math.max(0, move.steps - (state.moveBonusUsed.includes(loadout.id) ? 0 : (loadout.hero.effects.moveBonus || 0))));
+  const keep = remainingSharedMovementAfter(loadout, move.steps);
   elements.moveChoiceMessage.textContent = `This square is ${move.steps} steps away, but a legal ${move.fullSteps}-step route also reaches it. Keep ${keep} movement to split between Heroes, or spend the full route and begin attacking.`;
   elements.keepMovementButton.textContent = `Move ${move.steps} · Keep ${keep}`;
   elements.finishMovementButton.textContent = `Move ${move.fullSteps} · Attack`;
   elements.moveChoiceModal.style.setProperty("--team-color", teams[loadout.team].color);
   elements.moveChoiceModal.hidden = false;
+}
+
+function shouldAskMoveSpendChoice(loadout, move) {
+  if (state.phase !== "move" || !move.fullSteps || move.fullSteps <= move.steps) return false;
+  const keep = remainingSharedMovementAfter(loadout, move.steps);
+  if (keep <= 0) return false;
+  return teamLoadouts(state.activeTeam)
+    .filter((other) => !other.ko && other.id !== loadout.id)
+    .some((other) => {
+      const bonus = state.moveBonusUsed.includes(other.id) ? 0 : (other.hero.effects.moveBonus || 0);
+      return getReachableCells(other.x, other.y, keep + bonus, other.id, true).length > 0;
+    });
+}
+
+function remainingSharedMovementAfter(loadout, steps) {
+  const bonus = state.moveBonusUsed.includes(loadout.id) ? 0 : (loadout.hero.effects.moveBonus || 0);
+  return Math.max(0, state.movementLeft - Math.max(0, steps - bonus));
+}
+
+function moveWithExactRouteIfNeeded(move) {
+  return state.phase === "move" && move.fullSteps && move.fullSteps > move.steps ? { ...move, steps: move.fullSteps } : move;
 }
 
 function resolveMoveSpendChoice(finishMovement) {
@@ -1491,8 +1512,8 @@ function onPawnClick(loadoutId) {
     const move = getHighlights(selected).move.get(posKey(clicked.x, clicked.y));
     if (move) {
       if (["move", "retreat"].includes(state.phase) && move.returnMove) requestStayConfirmation(selected, move);
-      else if (state.phase === "move" && move.fullSteps && move.fullSteps > move.steps) requestMoveSpendChoice(selected, move);
-      else moveLoadoutTo(selected, move);
+      else if (shouldAskMoveSpendChoice(selected, move)) requestMoveSpendChoice(selected, move);
+      else moveLoadoutTo(selected, moveWithExactRouteIfNeeded(move));
       return;
     }
   }
