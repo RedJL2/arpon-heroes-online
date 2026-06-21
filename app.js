@@ -508,10 +508,11 @@ function generateRandomWalls(limit) {
     if (cluster.length >= 2 || (target === 1 && cluster.length === 1)) walls.push(...cluster);
   }
   if (walls.length < target) {
-    for (const wall of rankedWallCandidates()) {
+    for (const wall of rankedWallCandidates(null, walls)) {
       if (walls.length >= target) break;
-      if (walls.length && !walls.some((existing) => wallsTouch(existing, wall))) continue;
-      if (isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, walls)) walls.push({ ...wall, owner: "neutral" });
+      if (!touchesExistingStructure(wall, walls) && isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, walls)) {
+        walls.push({ ...wall, owner: "neutral" });
+      }
     }
   }
   return walls.slice(0, target).map((wall) => ({ ...wall, owner: wall.owner || "neutral" }));
@@ -541,12 +542,14 @@ function wallCenter(wall) {
   return wall.axis === "h" ? { x: wall.x + 0.5, y: wall.y } : { x: wall.x, y: wall.y + 0.5 };
 }
 
-function wallCandidateScore(wall, focusTeam = null) {
+function wallCandidateScore(wall, focusTeam = null, existingWalls = []) {
   const center = wallCenter(wall);
   const boardCenterDistance = Math.abs(center.x - 6.5) + Math.abs(center.y - 6.5);
+  const nearestExisting = nearestWallDistance(wall, existingWalls);
+  const spreadPenalty = nearestExisting < 2 ? 12 : nearestExisting < 3 ? 5 : nearestExisting < 4 ? 1.5 : 0;
   if (!focusTeam) {
     const edgePenalty = center.x < 3 || center.x > 10 || center.y < 3 || center.y > 10 ? 3 : 0;
-    return boardCenterDistance + edgePenalty;
+    return boardCenterDistance + edgePenalty + spreadPenalty;
   }
   const focus = {
     red: { x: 3.4, y: 6.5 },
@@ -558,27 +561,40 @@ function wallCandidateScore(wall, focusTeam = null) {
   const homeBonus = zones.includes(focusTeam) ? -1.35 : 0;
   const neutralBonus = zones.includes("neutral") ? -0.45 : 0;
   const enemyPenalty = zones.some((zone) => activeTeams().includes(zone) && zone !== focusTeam) ? 2.5 : 0;
-  return Math.abs(center.x - focus.x) + Math.abs(center.y - focus.y) + boardCenterDistance * 0.25 + homeBonus + neutralBonus + enemyPenalty;
+  return Math.abs(center.x - focus.x) + Math.abs(center.y - focus.y) + boardCenterDistance * 0.25 + homeBonus + neutralBonus + enemyPenalty + spreadPenalty;
 }
 
-function rankedWallCandidates(focusTeam = null) {
+function nearestWallDistance(wall, walls) {
+  if (!walls.length) return Infinity;
+  const center = wallCenter(wall);
+  return Math.min(...walls.map((existing) => {
+    const other = wallCenter(existing);
+    return Math.abs(center.x - other.x) + Math.abs(center.y - other.y);
+  }));
+}
+
+function rankedWallCandidates(focusTeam = null, existingWalls = []) {
   return allWallCandidates()
-    .map((wall) => ({ wall, score: wallCandidateScore(wall, focusTeam) + Math.random() * 1.4 }))
+    .map((wall) => ({ wall, score: wallCandidateScore(wall, focusTeam, existingWalls) + Math.random() * 1.4 }))
     .sort((a, b) => a.score - b.score)
     .map((entry) => entry.wall);
 }
 
 function buildRandomWallCluster(existingWalls, desiredSize, focusTeam = null, owner = "neutral") {
   const cluster = [];
-  const seed = rankedWallCandidates(focusTeam).find((wall) => isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, existingWalls, focusTeam));
+  const seed = rankedWallCandidates(focusTeam, existingWalls).find((wall) =>
+    !touchesExistingStructure(wall, existingWalls)
+    && isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, existingWalls, focusTeam),
+  );
   if (!seed) return cluster;
   cluster.push({ ...seed, owner });
   if (desiredSize <= 1) return cluster;
   let trialWalls = [...existingWalls, ...cluster];
   while (cluster.length < desiredSize) {
-    const next = rankedWallCandidates(focusTeam).find((wall) =>
+    const next = rankedWallCandidates(focusTeam, trialWalls).find((wall) =>
       !wallListHas(trialWalls, wall)
       && cluster.some((clusterWall) => wallsTouch(clusterWall, wall))
+      && !touchesExistingStructure(wall, existingWalls)
       && isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, trialWalls, focusTeam),
     );
     if (!next) break;
@@ -600,10 +616,32 @@ function wallsTouch(a, b) {
   return aEnds.some((first) => bEnds.some((second) => first.x === second.x && first.y === second.y));
 }
 
+function touchesExistingStructure(wall, existingWalls) {
+  return existingWalls.some((existing) => wallsTouch(existing, wall));
+}
+
+function connectedWallStructureSize(walls, startWall) {
+  const startIndex = walls.findIndex((wall) => wall.axis === startWall.axis && wall.x === startWall.x && wall.y === startWall.y);
+  if (startIndex < 0) return 0;
+  const seen = new Set([startIndex]);
+  const queue = [startIndex];
+  while (queue.length) {
+    const index = queue.shift();
+    walls.forEach((candidate, candidateIndex) => {
+      if (!seen.has(candidateIndex) && wallsTouch(walls[index], candidate)) {
+        seen.add(candidateIndex);
+        queue.push(candidateIndex);
+      }
+    });
+  }
+  return seen.size;
+}
+
 function isRandomWallSegmentLegal(axis, x, y, walls, team = null) {
-  if (team) return isWallSegmentLegalAgainst(axis, x, y, team, walls);
   const wall = { axis, x, y };
   if (wallListHas(walls, wall)) return false;
+  if (connectedWallStructureSize([...walls, wall], wall) > 4) return false;
+  if (team) return isWallSegmentLegalAgainst(axis, x, y, team, walls);
   const adjacent = adjacentCellsForWall(axis, x, y);
   if (!adjacent.every((cell) => inBounds(cell.x, cell.y) && !isCornerFortress(cell.x, cell.y))) return false;
   return basesHaveOpenings([...walls, wall]);
