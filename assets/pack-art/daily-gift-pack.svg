@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1260" width="900" height="1260" shape-rendering="crispEdges">
+  <defs>
+    <pattern id="stone" width="180" height="180" patternUnits="userSpaceOnUse">
+      <rect width="180" height="180" fill="#343633"/>
+      <rect x="0" y="0" width="76" height="44" fill="#4c4c46"/>
+      <rect x="82" y="0" width="98" height="44" fill="#41433f"/>
+      <rect x="0" y="50" width="108" height="58" fill="#5a574d"/>
+      <rect x="114" y="50" width="66" height="58" fill="#3d403c"/>
+      <rect x="0" y="114" width="54" height="66" fill="#464843"/>
+      <rect x="60" y="114" width="120" height="66" fill="#57544b"/>
+      <path d="M76 0v44M82 0v44M0 44h180M108 50v58M114 50v58M0 108h180M54 114v66M60 114v66" stroke="#1b1d1c" stroke-width="8"/>
+      <path d="M22 24h28M132 21h16M28 83h46M137 82h20M84 141h54" stroke="#777164" stroke-width="10"/>
+      <path d="M45 48h14v10H45zM132 106h12v12h-12zM29 150h20v10H29z" fill="#52642d"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="16" dy="20" stdDeviation="0" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+  </defs>
+
+  <path d="M88 18h36v38h42V18h44v38h42V18h44v38h42V18h44v38h42V18h44v38h42V18h44v38h42V18h44v38h42V18h44v38h42V18h36v1224h-36v-38h-42v38h-44v-38h-42v38h-44v-38h-42v38h-44v-38h-42v38h-44v-38h-42v38h-44v-38h-42v38h-44v-38h-42v38h-44V18z" fill="#111312"/>
+  <path d="M122 80h656v1100H122z" fill="url(#stone)"/>
+  <path d="M122 80h656v1100H122z" fill="none" stroke="#0b0b0b" stroke-width="28"/>
+  <path d="M164 122h572v1016H164z" fill="none" stroke="#9f0909" stroke-width="20"/>
+  <path d="M190 152h520v956H190z" fill="rgba(0,0,0,.28)"/>
+
+  <path d="M206 194h488v150H206z" fill="#111312" stroke="#d4b23a" stroke-width="14"/>
+  <text x="450" y="292" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-size="70" fill="#f7f2df" stroke="#000" stroke-width="8" paint-order="stroke">DAILY GIFT</text>
+
+  <g filter="url(#shadow)">
+    <path d="M240 438h420v318H240z" fill="#050505" stroke="#d4b23a" stroke-width="18"/>
+    <path d="M274 472h352v250H274z" fill="#191b1c"/>
+    <image href="../logo.png" x="294" y="507" width="312" height="172" preserveAspectRatio="xMidYMid meet"/>
+    <text x="450" y="687" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-size="42" fill="#d2d6dc" stroke="#000" stroke-width="6" paint-order="stroke">ARPON HEROES</text>
+  </g>
+
+  <path d="M248 822h404v170H248z" fill="#111312" stroke="#f0d451" stroke-width="14"/>
+  <text x="450" y="893" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-size="52" fill="#ffffff" stroke="#000" stroke-width="8" paint-order="stroke">1 FREE CARD</text>
+  <text x="450" y="952" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-size="34" fill="#cdd4d8" stroke="#000" stroke-width="5" paint-order="stroke">OPEN ONCE PER DAY</text>
+
+  <path d="M118 80h660v92H118zM118 1088h660v92H118z" fill="#17191a" opacity=".82"/>
+  <path d="M122 78h656v1102" fill="none" stroke="#000" stroke-width="12"/>
+</svg>

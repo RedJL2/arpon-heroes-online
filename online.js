@@ -865,7 +865,7 @@ async function grantAdminCard() {
 }
 
 async function recordGameComplete(result, attempt = 0, context = null) {
-  if (!account.token || account.recordedResults.has(result.matchId)) return;
+  if (account.recordedResults.has(result.matchId)) return;
   if (attempt === 0 && account.pendingResults.has(result.matchId)) return;
   if (attempt === 0) account.pendingResults.add(result.matchId);
   const recordContext = context || {
@@ -873,27 +873,30 @@ async function recordGameComplete(result, attempt = 0, context = null) {
     gameId: session.gameId,
     playerToken: session.token,
   };
+  const shouldRecordStats = Boolean(account.token) && (result.mode === "solo" || (recordContext.gameId && result.ranked));
+  const coinReward = coinRewardForResult(result);
+  if (!shouldRecordStats && !coinReward) {
+    account.pendingResults.delete(result.matchId);
+    return;
+  }
   try {
-    if (result.mode === "solo") {
+    if (shouldRecordStats && result.mode === "solo") {
       await rpc("record_arpon_solo_result", {
         p_session_token: recordContext.sessionToken,
         p_result_key: result.matchId,
         p_won: result.winners.includes("red"),
       });
-    } else if (recordContext.gameId && result.ranked) {
+    } else if (shouldRecordStats && recordContext.gameId && result.ranked) {
       await rpc("record_arpon_online_result", {
         p_game_id: recordContext.gameId,
         p_player_token: recordContext.playerToken,
         p_session_token: recordContext.sessionToken,
       });
-    } else {
-      account.pendingResults.delete(result.matchId);
-      return;
     }
     account.recordedResults.add(result.matchId);
     account.pendingResults.delete(result.matchId);
-    if (result.ranked && session.localTeam && result.winners?.includes(session.localTeam)) window.ArponCollection?.awardCoins?.(2);
-    await refreshAccount();
+    if (coinReward) window.ArponCollection?.awardCoins?.(coinReward);
+    if (shouldRecordStats) await refreshAccount();
   } catch {
     if (attempt < 6) {
       setTimeout(() => recordGameComplete(result, attempt + 1, recordContext), 700 + attempt * 550);
@@ -901,6 +904,15 @@ async function recordGameComplete(result, attempt = 0, context = null) {
       account.pendingResults.delete(result.matchId);
     }
   }
+}
+
+function coinRewardForResult(result) {
+  if (result.mode === "solo") return 1;
+  if (result.mode === "online") {
+    if (!result.ranked) return 1;
+    return session.localTeam && result.winners?.includes(session.localTeam) ? 3 : 1;
+  }
+  return 0;
 }
 
 onlineElements.openPlayButton?.addEventListener("click", () => showHomePanel("play"));

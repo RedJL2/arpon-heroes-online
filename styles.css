@@ -1672,7 +1672,7 @@ body.draft-mode .hero-list {
 .home-main-grid {
   display: grid;
   min-height: 310px;
-  grid-template-columns: 1.15fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -1690,6 +1690,27 @@ body.draft-mode .hero-list {
 
 .mode-card.shop-home {
   border-bottom-color: #d6ab00;
+}
+
+.mode-card.daily-home {
+  border-bottom-color: #22a05a;
+}
+
+.mode-card.daily-home.daily-ready .mode-icon {
+  color: #16884b;
+  box-shadow: 4px 4px 0 #16884b;
+  animation: daily-gift-glow 1.9s ease-in-out infinite;
+}
+
+.mode-card.daily-home.daily-claimed {
+  opacity: 0.72;
+}
+
+@keyframes daily-gift-glow {
+  50% {
+    transform: translateY(-2px);
+    box-shadow: 4px 7px 0 #16884b;
+  }
 }
 
 .mode-card {
@@ -2768,7 +2789,7 @@ body.draft-mode .hero-list {
 
 .shop-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 

@@ -7,6 +7,7 @@
   const PACKS = {
     standard: { cost: 4, count: 5, image: "./assets/pack-art/standard-extension-pack.png", title: "Standard Extension Pack" },
     novelty: { cost: 5, count: 3, image: "./assets/pack-art/novelty-extension-pack.png", title: "Novelty Extension Pack" },
+    daily: { cost: 0, count: 1, image: "./assets/pack-art/daily-gift-pack.svg", title: "Daily Card Gift" },
   };
 
   const cards = window.ArponGame.cards;
@@ -19,7 +20,7 @@
 
   const elements = Object.fromEntries(
     [
-      "openPlayButton", "openDeckButton", "openShopButton", "deckModal", "closeDeckButton", "activeDeckColumns", "ownedDeckColumns",
+      "openPlayButton", "openDeckButton", "openShopButton", "openDailyGiftButton", "deckModal", "closeDeckButton", "activeDeckColumns", "ownedDeckColumns",
       "deckMessage", "deckSwapBar", "deckSwapText", "cancelDeckSwapButton", "upgradeOverlay", "upgradeTitle", "upgradePreview",
       "upgradeText", "closeUpgradeButton", "cancelUpgradeButton", "confirmUpgradeButton", "deckCoinPill", "saveDeckButton",
       "deckSaveState", "shopModal",
@@ -48,7 +49,7 @@
         if (index < ACTIVE_PER_KIND) activeDeck.push(card.id);
       });
     });
-    return { version: 2, coins: 0, owned, activeDeck };
+    return { version: 3, coins: 0, owned, activeDeck, lastDailyGift: "" };
   }
 
   function loadCollection(key) {
@@ -86,7 +87,8 @@
       next.activeDeck = next.activeDeck.filter((id) => cardsById[id]?.kind !== kind || active.slice(0, ACTIVE_PER_KIND).includes(id));
     });
     next.coins = Math.max(0, Number(next.coins || 0));
-    next.version = 2;
+    next.lastDailyGift = typeof data.lastDailyGift === "string" ? data.lastDailyGift : "";
+    next.version = 3;
     return next;
   }
 
@@ -111,6 +113,16 @@
   function renderCoinPills() {
     if (elements.deckCoinPill) elements.deckCoinPill.textContent = coinText();
     if (elements.shopCoinPill) elements.shopCoinPill.textContent = coinText();
+    renderDailyGiftButton();
+  }
+
+  function renderDailyGiftButton() {
+    if (!elements.openDailyGiftButton) return;
+    const ready = canOpenDailyGift();
+    const text = elements.openDailyGiftButton.querySelector("small");
+    if (text) text.textContent = ready ? "Open one free card today" : "Already opened today. Back tomorrow.";
+    elements.openDailyGiftButton.classList.toggle("daily-ready", ready);
+    elements.openDailyGiftButton.classList.toggle("daily-claimed", !ready);
   }
 
   function showDeck(message = "") {
@@ -131,7 +143,7 @@
     elements.packOpening.hidden = true;
     elements.packOpening.innerHTML = "";
     opening = null;
-    elements.shopMessage.textContent = message || "Win ranked online games to earn coins. Standard packs can contain duplicates for upgrades.";
+    elements.shopMessage.textContent = message || "Ranked wins give 3 coins. Ranked losses, unranked games, and robot games give 1 coin.";
     elements.shopMessage.classList.remove("error");
     renderCoinPills();
     resetModalScroll(elements.shopModal);
@@ -349,8 +361,12 @@
   function buyPack(type) {
     const pack = PACKS[type];
     if (!pack) return;
+    if (type === "daily") {
+      claimDailyGift();
+      return;
+    }
     if (!isModView() && collection.coins < pack.cost) {
-      elements.shopMessage.textContent = "Not enough coins yet. Ranked wins give 2 coins.";
+      elements.shopMessage.textContent = "Not enough coins yet. Ranked wins give 3; ranked losses, unranked games, and robot games give 1.";
       elements.shopMessage.classList.add("error");
       return;
     }
@@ -363,6 +379,27 @@
     const results = cardsWon.map(addCardResult);
     saveCollection();
     openPackAnimation(type, results);
+  }
+
+  function claimDailyGift() {
+    reloadSavedCollection();
+    if (!canOpenDailyGift()) {
+      showShop("Daily gift already opened today. Come back tomorrow.");
+      elements.shopMessage.classList.add("error");
+      return;
+    }
+    const cardsWon = drawDailyGiftPack(PACKS.daily.count);
+    if (!cardsWon.length) {
+      showShop("No cards are available for today yet.");
+      elements.shopMessage.classList.add("error");
+      return;
+    }
+    collection.lastDailyGift = todayKey();
+    const results = cardsWon.map(addCardResult);
+    saveCollection();
+    elements.shopModal.hidden = false;
+    elements.shopMessage.classList.remove("error");
+    openPackAnimation("daily", results);
   }
 
   function drawStandardPack(count) {
@@ -378,6 +415,10 @@
 
   function drawNoveltyPack(count) {
     return shuffle(cards.map((card) => card.id).filter((id) => !collection.owned[id])).slice(0, count);
+  }
+
+  function drawDailyGiftPack(count) {
+    return shuffle(cards.map((card) => card.id)).slice(0, count);
   }
 
   function addCardResult(id) {
@@ -625,8 +666,18 @@
     return copy;
   }
 
+  function todayKey() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  function canOpenDailyGift() {
+    return isModView() || collection.lastDailyGift !== todayKey();
+  }
+
   elements.openDeckButton?.addEventListener("click", () => showDeck());
   elements.openShopButton?.addEventListener("click", () => showShop());
+  elements.openDailyGiftButton?.addEventListener("click", claimDailyGift);
   elements.closeDeckButton?.addEventListener("click", () => {
     elements.deckModal.hidden = true;
     elements.upgradeOverlay.hidden = true;
