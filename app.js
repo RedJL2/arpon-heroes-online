@@ -207,10 +207,10 @@ function wallsPerPlayer() {
 }
 
 function wallTarget(team) {
-  if (state.mode === "solo" && !state.randomWalls) return team === "red" ? state.wallLimit : 0;
   const index = activeTeams().indexOf(team);
+  if (index < 0) return 0;
   const base = Math.floor(state.wallLimit / activeTeams().length);
-  return base + (index >= 0 && index < state.wallLimit % activeTeams().length ? 1 : 0);
+  return base + (index < state.wallLimit % activeTeams().length ? 1 : 0);
 }
 
 function wallProgress(team) {
@@ -481,7 +481,7 @@ function beginSoloManualWalls() {
     return;
   }
   state.phase = "walls";
-  logEvent(`Place ${state.wallLimit} training walls. Keep every base with at least two openings.`, teams.red.color);
+  logEvent(`Wall setup begins: ${state.wallLimit} total walls. You and the robots place four at a time.`, teams.red.color);
   render();
 }
 
@@ -503,12 +503,12 @@ function generateRandomWalls(limit) {
   while (walls.length < target && guard < 1500) {
     guard += 1;
     const remaining = target - walls.length;
-    const desiredSize = Math.min(remaining, Math.max(2, 2 + Math.floor(Math.random() * 4)));
+    const desiredSize = randomStructureSize(remaining);
     const cluster = buildRandomWallCluster(walls, desiredSize);
     if (cluster.length >= 2 || (target === 1 && cluster.length === 1)) walls.push(...cluster);
   }
   if (walls.length < target) {
-    for (const wall of shuffle(allWallCandidates())) {
+    for (const wall of rankedWallCandidates()) {
       if (walls.length >= target) break;
       if (walls.length && !walls.some((existing) => wallsTouch(existing, wall))) continue;
       if (isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, walls)) walls.push({ ...wall, owner: "neutral" });
@@ -528,24 +528,64 @@ function allWallCandidates() {
   return candidates;
 }
 
-function buildRandomWallCluster(existingWalls, desiredSize) {
+function randomStructureSize(remaining) {
+  const maxSize = Math.min(Math.max(0, remaining), 4);
+  if (maxSize <= 1) return maxSize;
+  const roll = Math.random();
+  let wanted = Math.min(maxSize, roll < 0.55 ? 2 : roll < 0.9 ? 3 : 4);
+  if (remaining - wanted === 1) wanted = wanted < 4 && wanted + 1 <= remaining ? wanted + 1 : Math.max(2, wanted - 1);
+  return wanted;
+}
+
+function wallCenter(wall) {
+  return wall.axis === "h" ? { x: wall.x + 0.5, y: wall.y } : { x: wall.x, y: wall.y + 0.5 };
+}
+
+function wallCandidateScore(wall, focusTeam = null) {
+  const center = wallCenter(wall);
+  const boardCenterDistance = Math.abs(center.x - 6.5) + Math.abs(center.y - 6.5);
+  if (!focusTeam) {
+    const edgePenalty = center.x < 3 || center.x > 10 || center.y < 3 || center.y > 10 ? 3 : 0;
+    return boardCenterDistance + edgePenalty;
+  }
+  const focus = {
+    red: { x: 3.4, y: 6.5 },
+    green: { x: 6.5, y: 3.4 },
+    yellow: { x: 9.6, y: 6.5 },
+    blue: { x: 6.5, y: 9.6 },
+  }[focusTeam] || { x: 6.5, y: 6.5 };
+  const zones = adjacentCellsForWall(wall.axis, wall.x, wall.y).map((cell) => zoneOfCell(cell.x, cell.y));
+  const homeBonus = zones.includes(focusTeam) ? -1.35 : 0;
+  const neutralBonus = zones.includes("neutral") ? -0.45 : 0;
+  const enemyPenalty = zones.some((zone) => activeTeams().includes(zone) && zone !== focusTeam) ? 2.5 : 0;
+  return Math.abs(center.x - focus.x) + Math.abs(center.y - focus.y) + boardCenterDistance * 0.25 + homeBonus + neutralBonus + enemyPenalty;
+}
+
+function rankedWallCandidates(focusTeam = null) {
+  return allWallCandidates()
+    .map((wall) => ({ wall, score: wallCandidateScore(wall, focusTeam) + Math.random() * 1.4 }))
+    .sort((a, b) => a.score - b.score)
+    .map((entry) => entry.wall);
+}
+
+function buildRandomWallCluster(existingWalls, desiredSize, focusTeam = null, owner = "neutral") {
   const cluster = [];
-  const seed = shuffle(allWallCandidates()).find((wall) => isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, existingWalls));
+  const seed = rankedWallCandidates(focusTeam).find((wall) => isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, existingWalls, focusTeam));
   if (!seed) return cluster;
-  cluster.push({ ...seed, owner: "neutral" });
+  cluster.push({ ...seed, owner });
   if (desiredSize <= 1) return cluster;
   let trialWalls = [...existingWalls, ...cluster];
   while (cluster.length < desiredSize) {
-    const next = shuffle(allWallCandidates()).find((wall) =>
+    const next = rankedWallCandidates(focusTeam).find((wall) =>
       !wallListHas(trialWalls, wall)
       && cluster.some((clusterWall) => wallsTouch(clusterWall, wall))
-      && isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, trialWalls),
+      && isRandomWallSegmentLegal(wall.axis, wall.x, wall.y, trialWalls, focusTeam),
     );
     if (!next) break;
-    cluster.push({ ...next, owner: "neutral" });
+    cluster.push({ ...next, owner });
     trialWalls = [...existingWalls, ...cluster];
   }
-  return cluster.length >= 2 ? cluster : [];
+  return cluster.length >= Math.min(2, desiredSize) ? cluster : [];
 }
 
 function wallEndpoints(wall) {
@@ -560,7 +600,8 @@ function wallsTouch(a, b) {
   return aEnds.some((first) => bEnds.some((second) => first.x === second.x && first.y === second.y));
 }
 
-function isRandomWallSegmentLegal(axis, x, y, walls) {
+function isRandomWallSegmentLegal(axis, x, y, walls, team = null) {
+  if (team) return isWallSegmentLegalAgainst(axis, x, y, team, walls);
   const wall = { axis, x, y };
   if (wallListHas(walls, wall)) return false;
   const adjacent = adjacentCellsForWall(axis, x, y);
@@ -624,9 +665,8 @@ function renderTutorialCoach() {
 
 function renderBotSkipButton() {
   if (!elements.skipBotTurnButton) return;
-  const pendingRobot = state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team);
-  const activeRobot = state.robotTeams.includes(state.activeTeam) && !["lobby", "draft", "walls", "place", "complete"].includes(state.phase);
-  const show = state.mode === "solo" && (pendingRobot || activeRobot);
+  const show = state.mode === "solo" && robotNeedsAction();
+  elements.skipBotTurnButton.textContent = state.phase === "walls" ? "Fast Walls" : "Fast Bot";
   elements.skipBotTurnButton.hidden = !show;
   elements.skipBotTurnButton.disabled = !show;
 }
@@ -2117,14 +2157,18 @@ function wallListHas(walls, wall) {
 }
 
 function isWallSegmentLegal(axis, x, y, team) {
+  return isWallSegmentLegalAgainst(axis, x, y, team, state.walls);
+}
+
+function isWallSegmentLegalAgainst(axis, x, y, team, walls) {
   const wall = { axis, x, y };
-  if (wallExists(wall)) return false;
+  if (wallListHas(walls, wall)) return false;
   const adjacent = adjacentCellsForWall(axis, x, y);
   if (!adjacent.every((cell) => inBounds(cell.x, cell.y) && !isCornerFortress(cell.x, cell.y))) return false;
   const occupiedEnemyBases = activeTeams().filter((item) => item !== team);
   const zones = adjacent.map((cell) => zoneOfCell(cell.x, cell.y));
   if (zones.some((zone) => occupiedEnemyBases.includes(zone))) return false;
-  return basesHaveOpenings([...state.walls, wall]);
+  return basesHaveOpenings([...walls, wall]);
 }
 
 function adjacentCellsForWall(axis, x, y) {
@@ -2462,72 +2506,140 @@ function canLocalControlTeam(team) {
 }
 
 function scheduleRobotAction() {
-  const canRunRobot = state.mode === "solo" || (state.mode === "online" && window.ArponOnline?.isHost?.());
-  if (!canRunRobot || state.phase === "complete" || deviceState.robotActing || deviceState.robotTimer) return;
-  const pendingRobot = state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team);
-  const activeRobot = state.robotTeams.includes(state.activeTeam) && !["lobby", "draft", "walls", "place"].includes(state.phase);
-  if (!pendingRobot && !activeRobot) return;
+  if (!canRunRobotController() || state.phase === "complete" || deviceState.robotActing || deviceState.robotTimer || !robotNeedsAction()) return;
   deviceState.robotTimer = setTimeout(() => {
     deviceState.robotTimer = null;
     runRobotAction();
   }, 2700);
 }
 
+function canRunRobotController() {
+  return state.mode === "solo" || (state.mode === "online" && window.ArponOnline?.isHost?.());
+}
+
+function robotNeedsAction() {
+  if (state.phase === "complete") return false;
+  if (state.pendingRoll) return state.robotTeams.includes(state.pendingRoll.team);
+  if (state.pendingAttack) return false;
+  const wallRobot = state.phase === "walls" && state.robotTeams.includes(state.wallOwnerTurn);
+  const activeRobot = state.robotTeams.includes(state.activeTeam) && !["lobby", "draft", "walls", "place"].includes(state.phase);
+  return wallRobot || activeRobot;
+}
+
 function skipBotTurn() {
   if (state.mode !== "solo") return;
   clearTimeout(deviceState.robotTimer);
   deviceState.robotTimer = null;
-  const pending = state.pendingRoll;
-  if (pending && state.robotTeams.includes(pending.team)) {
-    state.pendingRoll = null;
-    logEvent(`${displayName(pending.team)}'s ability roll was skipped.`, teams[pending.team].color);
-    resolvePendingRoll(pending, 0);
-    return;
+  if (!robotNeedsAction()) return;
+  const team = state.pendingRoll?.team || (state.phase === "walls" ? state.wallOwnerTurn : state.activeTeam);
+  let guard = 0;
+  deviceState.robotActing = true;
+  try {
+    while (robotNeedsAction() && guard < 60) {
+      guard += 1;
+      performRobotStep(true);
+    }
+  } finally {
+    deviceState.robotActing = false;
   }
-  if (!state.robotTeams.includes(state.activeTeam) || ["lobby", "draft", "walls", "place", "complete"].includes(state.phase)) return;
-  const skippedTeam = state.activeTeam;
-  state.pendingAttack = null;
-  state.pendingRoll = null;
-  state.movementLeft = 0;
-  state.retreatQueue = [];
-  state.retreatHeroId = null;
-  state.retreatSteps = 0;
-  logEvent(`${displayName(skippedTeam)}'s robot turn was skipped.`, teams[skippedTeam].color);
-  advanceToNextTurn();
+  logEvent(`${displayName(team)} fast-forwarded to the next result.`, teams[team]?.color || "#30343b");
+  render();
 }
 
 function runRobotAction() {
-  if (!(state.mode === "solo" || (state.mode === "online" && window.ArponOnline?.isHost?.()))) return;
+  if (!canRunRobotController()) return;
   deviceState.robotActing = true;
   try {
-    if (state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team)) {
-      rollPendingAbility();
-      return;
-    }
-    if (!state.robotTeams.includes(state.activeTeam)) return;
-    if (["battleRoll", "retreatRoll"].includes(state.phase)) {
-      rollForPhase();
-      return;
-    }
-    if (state.phase === "move") {
-      robotMove();
-      return;
-    }
-    if (state.phase === "attack") {
-      const choices = remainingAttackPairs().sort((a, b) => a.target.currentHp - b.target.currentHp);
-      if (choices.length) attackLoadout(choices[0].attacker, choices[0].target);
-      else endTurn();
-      return;
-    }
-    if (state.phase === "retreat") {
-      robotRetreat();
-      return;
-    }
-    if (state.phase === "done") endTurn();
+    performRobotStep(false);
   } finally {
     deviceState.robotActing = false;
     scheduleRobotAction();
   }
+}
+
+function performRobotStep(immediate = false) {
+  if (state.pendingRoll && state.robotTeams.includes(state.pendingRoll.team)) {
+    if (immediate) {
+      const pending = state.pendingRoll;
+      state.pendingRoll = null;
+      const result = rollDie();
+      state.dice = result;
+      logEvent(`${displayName(pending.team)} rolled ${result} for ${pending.title}.`, teams[pending.team].color);
+      resolvePendingRoll(pending, result);
+    } else rollPendingAbility();
+    return;
+  }
+  if (state.phase === "walls" && state.robotTeams.includes(state.wallOwnerTurn)) {
+    robotPlaceWallBatch();
+    return;
+  }
+  if (!state.robotTeams.includes(state.activeTeam)) return;
+  if (["battleRoll", "retreatRoll"].includes(state.phase)) {
+    if (immediate) robotRollForPhaseInstantly();
+    else rollForPhase();
+    return;
+  }
+  if (state.phase === "move") {
+    robotMove();
+    return;
+  }
+  if (state.phase === "attack") {
+    const choices = remainingAttackPairs().sort((a, b) => a.target.currentHp - b.target.currentHp);
+    if (choices.length) attackLoadout(choices[0].attacker, choices[0].target);
+    else endTurn();
+    return;
+  }
+  if (state.phase === "retreat") {
+    robotRetreat();
+    return;
+  }
+  if (state.phase === "done") endTurn();
+}
+
+function robotRollForPhaseInstantly() {
+  if (!["battleRoll", "retreatRoll"].includes(state.phase)) return;
+  const rolledPhase = state.phase;
+  const result = rollDie();
+  state.dice = result;
+  if (rolledPhase === "battleRoll") beginMovement(result);
+  else beginRetreatMove(result);
+}
+
+function robotPlaceWallBatch() {
+  const team = state.wallOwnerTurn;
+  if (!state.robotTeams.includes(team)) return;
+  const remaining = Math.max(0, wallTarget(team) - wallProgress(team));
+  const batchRemaining = Math.min(remaining, WALLS_PER_SETUP_TURN - (wallProgress(team) % WALLS_PER_SETUP_TURN || 0));
+  let placed = 0;
+  let guard = 0;
+  while (placed < batchRemaining && guard < 200) {
+    guard += 1;
+    const needed = batchRemaining - placed;
+    const cluster = buildRandomWallCluster(state.walls, randomStructureSize(needed), team, team);
+    if (!cluster.length) break;
+    cluster.slice(0, needed).forEach((wall) => {
+      state.walls.push(wall);
+      state.wallCounts[team] = (state.wallCounts[team] || 0) + 1;
+      placed += 1;
+    });
+  }
+  if (!placed) {
+    state.wallSkipped[team] = (state.wallSkipped[team] || 0) + Math.max(1, batchRemaining);
+    logEvent(`${displayName(team)} found no legal wall structure and passed this wall turn.`, teams[team].color);
+  } else if (placed < batchRemaining) {
+    state.wallSkipped[team] = (state.wallSkipped[team] || 0) + (batchRemaining - placed);
+    logEvent(`${displayName(team)} placed ${placed} wall segments and passed the rest.`, teams[team].color);
+  } else {
+    logEvent(`${displayName(team)} placed ${placed} wall segments.`, teams[team].color);
+  }
+  if (totalWallProgress() >= state.wallLimit || activeTeams().every((id) => wallProgress(id) >= wallTarget(id))) {
+    completeWallSetup();
+  } else {
+    state.wallOwnerTurn = nextWallTeam(team);
+    state.activeTeam = state.wallOwnerTurn;
+    state.wallBatchStartIndex = state.walls.length;
+  }
+  render();
 }
 
 function robotMove() {
