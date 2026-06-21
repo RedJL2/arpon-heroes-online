@@ -10,13 +10,13 @@ const onlineElements = Object.fromEntries(
     "homeRulesButton", "tutorialBattleButton", "rulesModal", "onlinePlayerName", "createRoomButton", "roomCodeInput", "joinRoomButton", "privateMessage",
     "onlineRoomModal", "onlineRoomEyebrow", "onlineRoomTitle", "onlineRoomStatus", "onlineCountdown", "onlineCountdownValue",
     "onlinePlayerList", "startOnlineRoomButton", "cancelOnlineButton", "turnLimitInput", "matchWaitingCount",
-    "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateRankedInput",
+    "privateTurnLimitInput", "privateTurnLimitValue", "privateWallLimitInput", "privateWallLimitValue", "privateTimerEnabledInput", "privateRandomWallsInput", "privateRankedInput",
     "accountButton", "accountSummary", "accountModal", "closeAccountButton", "accountForm", "accountUsername", "accountPassword", "accountLoginButton",
     "accountCreateButton", "accountRecord", "accountMessage", "accountLogoutButton", "leaderboardButton", "leaderboardModal",
     "closeLeaderboardButton", "leaderboardList", "leaderboardPreviousButton", "leaderboardNextButton", "leaderboardPageLabel",
     "friendsButton", "friendsModal", "closeFriendsButton", "friendUsername", "friendMessage", "sendFriendRequestButton", "sendFriendMessageButton",
     "sendBattleInviteButton", "friendsMessage", "friendsList", "friendRequestsList", "friendMessagesList",
-    "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleRankedInput",
+    "friendBattleTurnLimitInput", "friendBattleTurnLimitValue", "friendBattleWallLimitInput", "friendBattleWallLimitValue", "friendBattleTimerEnabledInput", "friendBattleRandomWallsInput", "friendBattleRankedInput",
     "adminButton", "adminModal", "closeAdminButton", "adminStats", "adminMessage", "adminAccountList",
     "adminGrantUsername", "adminGrantCoins", "adminGrantCoinsButton", "adminGrantCardSelect", "adminGrantCardButton",
     "passwordChange", "currentPassword", "newPassword", "changePasswordButton",
@@ -26,6 +26,14 @@ const onlineElements = Object.fromEntries(
 const teamNames = ["Red", "Green", "Yellow", "Blue"];
 const teamKeys = ["red", "green", "yellow", "blue"];
 const teamColors = { red: "#b71f24", green: "#16844e", blue: "#184fa8", yellow: "#d1a900" };
+function readHostConfigs() {
+  try {
+    return JSON.parse(sessionStorage.getItem("arpon-host-configs") || "{}");
+  } catch {
+    return {};
+  }
+}
+
 const session = {
   active: false,
   applyingRemote: false,
@@ -40,6 +48,7 @@ const session = {
   started: false,
   token: sessionStorage.getItem("arpon-player-token") || crypto.randomUUID(),
   lastStateHash: "",
+  hostConfigs: readHostConfigs(),
 };
 sessionStorage.setItem("arpon-player-token", session.token);
 let matchmakingCountTimer = null;
@@ -54,6 +63,24 @@ const leaderboard = { metric: "ranked_wins", page: 0, rows: [] };
 let presenceTimer = null;
 let socialTimer = null;
 let grantClaimBusy = false;
+
+function rememberHostConfig(gameId, config) {
+  if (!gameId) return;
+  session.hostConfigs[gameId] = {
+    timerEnabled: config.timerEnabled !== false,
+    randomWalls: Boolean(config.randomWalls),
+  };
+  sessionStorage.setItem("arpon-host-configs", JSON.stringify(session.hostConfigs));
+}
+
+function hostConfigForRoom(room) {
+  if (room.game.mode === "matchmaking") return { timerEnabled: true, randomWalls: false };
+  const stored = session.hostConfigs[room.game.id] || {};
+  return {
+    timerEnabled: stored.timerEnabled ?? room.game.timer_enabled ?? true,
+    randomWalls: Boolean(stored.randomWalls),
+  };
+}
 
 function playerName() {
   const entered = onlineElements.onlinePlayerName.value.trim();
@@ -148,7 +175,7 @@ function setupErrorMessage(error) {
 
 function looksLikeMissingRpcOverload(error) {
   const raw = String(error?.message || error || "");
-  return /schema cache|could not find|does not exist|not found|p_timer_enabled/i.test(raw);
+  return /schema cache|could not find|does not exist|not found|p_timer_enabled|could not choose the best candidate function/i.test(raw);
 }
 
 function setOnlineBusy(message) {
@@ -261,6 +288,10 @@ async function enterRoom(room) {
 async function createPrivateRoom() {
   rememberPlayerName();
   showPrivateMessage("Creating room...");
+  const hostConfig = {
+    timerEnabled: Boolean(onlineElements.privateTimerEnabledInput?.checked ?? true),
+    randomWalls: Boolean(onlineElements.privateRandomWallsInput?.checked),
+  };
   try {
     const room = await createPrivateRoomRpc({
       p_player_token: session.token,
@@ -268,8 +299,9 @@ async function createPrivateRoom() {
       p_turn_limit: Number(onlineElements.privateTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.privateWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.privateRankedInput?.checked),
-      p_timer_enabled: Boolean(onlineElements.privateTimerEnabledInput?.checked ?? true),
+      p_timer_enabled: hostConfig.timerEnabled,
     });
+    rememberHostConfig(room.game.id, hostConfig);
     showPrivateMessage("Room created.");
     await enterRoom(room);
   } catch (error) {
@@ -291,7 +323,7 @@ async function createPrivateRoomRpc(params) {
   } catch (firstError) {
     if (!looksLikeMissingRpcOverload(firstError)) throw firstError;
     try {
-      return await rpc("create_arpon_private_room_v2", baseParams);
+      return await rpc("create_arpon_private_room_v2", { ...baseParams, p_timer_enabled: params.p_timer_enabled });
     } catch (secondError) {
       if (!looksLikeMissingRpcOverload(secondError)) throw secondError;
       return rpc("create_arpon_private_room", baseParams);
@@ -405,7 +437,14 @@ async function handleRoomState(room) {
   if (room.game.is_host) {
     onlineElements.lobbyModal.hidden = true;
     onlineElements.onlineRoomModal.hidden = true;
-    window.ArponGame.startOnlineGame(room.players, room.game.mode === "matchmaking" ? null : room.game.turn_limit, room.game.wall_limit, room.game.ranked, room.game.id);
+    window.ArponGame.startOnlineGame(
+      room.players,
+      room.game.mode === "matchmaking" ? null : room.game.turn_limit,
+      room.game.wall_limit,
+      room.game.ranked,
+      room.game.id,
+      hostConfigForRoom(room),
+    );
   }
 }
 
@@ -704,6 +743,10 @@ async function sendFriendlyBattleInvite() {
   if (!username) return setFriendsMessage("Choose a friend first.", true);
   rememberPlayerName();
   setFriendsMessage("Creating friendly battle...");
+  const hostConfig = {
+    timerEnabled: Boolean(onlineElements.friendBattleTimerEnabledInput?.checked ?? true),
+    randomWalls: Boolean(onlineElements.friendBattleRandomWallsInput?.checked),
+  };
   try {
     const room = await createPrivateRoomRpc({
       p_player_token: session.token,
@@ -711,8 +754,9 @@ async function sendFriendlyBattleInvite() {
       p_turn_limit: Number(onlineElements.friendBattleTurnLimitInput?.value || 24),
       p_wall_limit: Number(onlineElements.friendBattleWallLimitInput?.value || 24),
       p_ranked: Boolean(onlineElements.friendBattleRankedInput?.checked),
-      p_timer_enabled: Boolean(onlineElements.friendBattleTimerEnabledInput?.checked ?? true),
+      p_timer_enabled: hostConfig.timerEnabled,
     });
+    rememberHostConfig(room.game.id, hostConfig);
     await rpc("link_arpon_player_account", { p_game_id: room.game.id, p_player_token: session.token, p_session_token: account.token });
     await rpc("send_arpon_battle_invite", { p_session_token: account.token, p_username: username, p_game_id: room.game.id });
     onlineElements.friendsModal.hidden = true;

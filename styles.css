@@ -190,6 +190,14 @@ button:disabled {
   gap: 7px;
 }
 
+.bot-skip-button {
+  min-width: 88px;
+  border-color: #17191c;
+  background: #f4d34f;
+  color: #17191c;
+  box-shadow: 3px 3px 0 #17191c;
+}
+
 .tool-button,
 .segment,
 .count-button {
@@ -1821,6 +1829,15 @@ body.draft-mode .hero-list {
   accent-color: var(--red);
 }
 
+.option-toggle {
+  grid-column: auto;
+  min-height: 58px;
+}
+
+.option-toggle span {
+  line-height: 1.25;
+}
+
 .setup-mode-panel {
   width: min(780px, 100%);
   margin: auto;
@@ -2202,6 +2219,10 @@ body.draft-mode .hero-list {
 
 .friendly-battle-settings .ranked-toggle {
   grid-column: 1 / -1;
+}
+
+.friendly-battle-settings .option-toggle {
+  grid-column: auto;
 }
 
 .friend-message-field textarea {

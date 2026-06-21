@@ -39,6 +39,7 @@
         </div>
 
         <div class="top-actions">
+          <button class="tool-button bot-skip-button" id="skipBotTurnButton" type="button" hidden>Skip Bot</button>
           <button class="tool-button audio-toggle" id="muteButton" type="button" title="Mute sound" aria-pressed="false">Sound</button>
           <button class="tool-button" id="rulesButton" type="button" title="Open rules">?</button>
           <button class="tool-button danger" id="resetButton" type="button" title="New game">New</button>
@@ -222,11 +223,12 @@
             <small>Highest combined HP wins if time expires.</small>
           </label>
           <label class="turn-limit-control" for="soloWallLimitInput">
-            <span>Random walls</span>
+            <span>Walls</span>
             <strong id="soloWallLimitValue">24 walls</strong>
             <input id="soloWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
-            <small>The arena generates these walls before Hero placement.</small>
+            <small>Random structures use connected fortress-wall shapes.</small>
           </label>
+          <label class="ranked-toggle option-toggle"><input id="soloRandomWallsInput" type="checkbox" checked /><span>Use random wall structures</span></label>
           <button class="primary-action large" id="startSoloButton" type="button">Fight the Robots</button>
         </section>
 
@@ -246,6 +248,8 @@
               <strong id="privateWallLimitValue">24 walls</strong>
               <input id="privateWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
             </label>
+            <label class="ranked-toggle option-toggle"><input id="privateTimerEnabledInput" type="checkbox" checked /><span>Use turn timer</span></label>
+            <label class="ranked-toggle option-toggle"><input id="privateRandomWallsInput" type="checkbox" /><span>Use random wall structures</span></label>
             <label class="ranked-toggle"><input id="privateRankedInput" type="checkbox" /><span>Count this game toward account records and leaderboard</span></label>
           </div>
           <div class="private-actions">
@@ -470,6 +474,8 @@
               <strong id="friendBattleWallLimitValue">24 walls</strong>
               <input id="friendBattleWallLimitInput" type="range" min="0" max="36" step="4" value="24" />
             </label>
+            <label class="ranked-toggle option-toggle"><input id="friendBattleTimerEnabledInput" type="checkbox" checked /><span>Use turn timer</span></label>
+            <label class="ranked-toggle option-toggle"><input id="friendBattleRandomWallsInput" type="checkbox" /><span>Use random wall structures</span></label>
             <label class="ranked-toggle"><input id="friendBattleRankedInput" type="checkbox" /><span>Count this friendly battle toward ranked records</span></label>
           </div>
           <div class="friend-actions">
