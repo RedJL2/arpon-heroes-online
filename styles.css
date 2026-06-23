@@ -1901,6 +1901,36 @@ body.draft-mode .hero-list {
   text-transform: uppercase;
 }
 
+#friendsButton {
+  position: relative;
+}
+
+#friendsButton.has-social-alert {
+  animation: friend-alert-blink 1s ease-in-out infinite;
+}
+
+#friendsButton.has-social-alert::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #fff;
+  background: #e42127;
+  box-shadow: 0 0 0 2px #151515, 0 0 12px rgba(228, 33, 39, 0.9);
+}
+
+@keyframes friend-alert-blink {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.35);
+  }
+}
+
 .online-field {
   display: grid;
   gap: 5px;

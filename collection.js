@@ -1,6 +1,8 @@
 (() => {
   const ACTIVE_PER_KIND = 6;
   const DEFAULT_OWNED_PER_KIND = 8;
+  const COLLECTION_VERSION = 4;
+  const DAY_MS = 24 * 60 * 60 * 1000;
   const UPGRADE_COSTS = [0, 1, 2, 3, 4, 5];
   const TIER_NAMES = ["White", "Green", "Blue", "Purple", "Gold", "Red"];
   const TIER_CLASSES = ["tier-0", "tier-1", "tier-2", "tier-3", "tier-4", "tier-5"];
@@ -24,7 +26,7 @@
       "deckMessage", "deckSwapBar", "deckSwapText", "cancelDeckSwapButton", "upgradeOverlay", "upgradeTitle", "upgradePreview",
       "upgradeText", "closeUpgradeButton", "cancelUpgradeButton", "confirmUpgradeButton", "deckCoinPill", "saveDeckButton",
       "deckSaveState", "shopModal",
-      "closeShopButton", "shopCoinPill", "shopMessage", "shopLayout", "packOpening",
+      "closeShopButton", "shopCoinPill", "shopMessage", "shopLayout", "packOpening", "dailyGiftShopButton",
     ].map((id) => [id, document.querySelector(`#${id}`)]),
   );
 
@@ -35,6 +37,10 @@
   let pendingSwap = null;
   let pendingUpgrade = null;
   let opening = null;
+  let cloudSaveTimer = null;
+  let cloudSaveBusy = false;
+  let cloudSaveQueued = false;
+  let dailyTimerStarted = false;
 
   function ownerStorageKey(profile = window.ArponOnline?.getAccountProfile?.()) {
     return `arpon-collection:${profile?.username || "guest"}`;
@@ -49,7 +55,7 @@
         if (index < ACTIVE_PER_KIND) activeDeck.push(card.id);
       });
     });
-    return { version: 3, coins: 0, owned, activeDeck, lastDailyGift: "" };
+    return { version: COLLECTION_VERSION, updatedAt: 0, coins: 0, owned, activeDeck, lastDailyGift: "", lastDailyGiftAt: 0 };
   }
 
   function loadCollection(key) {
@@ -87,19 +93,104 @@
       next.activeDeck = next.activeDeck.filter((id) => cardsById[id]?.kind !== kind || active.slice(0, ACTIVE_PER_KIND).includes(id));
     });
     next.coins = Math.max(0, Number(next.coins || 0));
+    next.updatedAt = Number(data.updatedAt || 0);
     next.lastDailyGift = typeof data.lastDailyGift === "string" ? data.lastDailyGift : "";
-    next.version = 3;
+    next.lastDailyGiftAt = Number(data.lastDailyGiftAt || 0);
+    if (!next.lastDailyGiftAt && next.lastDailyGift) {
+      const parsedGiftDate = new Date(`${next.lastDailyGift}T00:00:00`).getTime();
+      next.lastDailyGiftAt = Number.isFinite(parsedGiftDate) ? parsedGiftDate : 0;
+    }
+    next.version = COLLECTION_VERSION;
     return next;
   }
 
-  function saveCollection() {
+  function saveCollection(options = {}) {
+    if (options.touch !== false) collection.updatedAt = Date.now();
     localStorage.setItem(ownerKey, JSON.stringify(collection));
     renderCoinPills();
+    if (options.sync !== false) scheduleAccountCollectionSave();
   }
 
   function reloadSavedCollection() {
     collection = loadCollection(ownerKey);
     return collection;
+  }
+
+  function collectionSnapshot() {
+    return migrateCollection({
+      version: COLLECTION_VERSION,
+      updatedAt: collection.updatedAt,
+      coins: collection.coins,
+      owned: collection.owned,
+      activeDeck: collection.activeDeck,
+      lastDailyGift: collection.lastDailyGift,
+      lastDailyGiftAt: collection.lastDailyGiftAt,
+    });
+  }
+
+  function mergeOwnedCards(localOwned = {}, cloudOwned = {}) {
+    const merged = { ...localOwned };
+    Object.entries(cloudOwned || {}).forEach(([id, cloudCard]) => {
+      if (!cardsById[id]) return;
+      const localCard = merged[id] || { level: 0, progress: 0, isNew: false };
+      merged[id] = {
+        level: Math.max(clampTier(localCard.level), clampTier(cloudCard?.level)),
+        progress: Math.max(Number(localCard.progress || 0), Number(cloudCard?.progress || 0)),
+        isNew: Boolean(localCard.isNew || cloudCard?.isNew),
+      };
+    });
+    return merged;
+  }
+
+  function applyCollectionSnapshot(cloudData) {
+    if (!cloudData || typeof cloudData !== "object") return false;
+    const cloud = migrateCollection(cloudData);
+    const localGiftAt = Number(collection.lastDailyGiftAt || 0);
+    const cloudGiftAt = Number(cloud.lastDailyGiftAt || 0);
+    const localUpdatedAt = Number(collection.updatedAt || 0);
+    const cloudUpdatedAt = Number(cloud.updatedAt || 0);
+    const useCloudDeck = cloudUpdatedAt >= localUpdatedAt && validateDeck(cloud.activeDeck).ok;
+    collection = migrateCollection({
+      ...collection,
+      updatedAt: Math.max(localUpdatedAt, cloudUpdatedAt),
+      coins: isModView() ? collection.coins : Math.max(Number(collection.coins || 0), Number(cloud.coins || 0)),
+      owned: mergeOwnedCards(collection.owned, cloud.owned),
+      activeDeck: useCloudDeck ? cloud.activeDeck : collection.activeDeck,
+      lastDailyGift: cloudGiftAt >= localGiftAt ? cloud.lastDailyGift : collection.lastDailyGift,
+      lastDailyGiftAt: Math.max(localGiftAt, cloudGiftAt),
+    });
+    saveCollection({ sync: false, touch: false });
+    return true;
+  }
+
+  function scheduleAccountCollectionSave() {
+    if (!window.ArponOnline?.getAccountProfile?.() || !window.ArponOnline?.saveAccountCollection) return;
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer = setTimeout(saveAccountCollectionNow, 450);
+  }
+
+  async function saveAccountCollectionNow() {
+    if (!window.ArponOnline?.getAccountProfile?.() || !window.ArponOnline?.saveAccountCollection) return false;
+    if (cloudSaveBusy) {
+      cloudSaveQueued = true;
+      return false;
+    }
+    cloudSaveBusy = true;
+    try {
+      await window.ArponOnline.saveAccountCollection(collectionSnapshot());
+      return true;
+    } catch (error) {
+      if (!/collection|function|schema cache|does not exist|not found/i.test(String(error?.message || error || ""))) {
+        console.warn("Could not sync Arpon collection", error);
+      }
+      return false;
+    } finally {
+      cloudSaveBusy = false;
+      if (cloudSaveQueued) {
+        cloudSaveQueued = false;
+        scheduleAccountCollectionSave();
+      }
+    }
   }
 
   function isModView() {
@@ -117,12 +208,23 @@
   }
 
   function renderDailyGiftButton() {
-    if (!elements.openDailyGiftButton) return;
     const ready = canOpenDailyGift();
-    const text = elements.openDailyGiftButton.querySelector("small");
-    if (text) text.textContent = ready ? "Open one free card today" : "Already opened today. Back tomorrow.";
-    elements.openDailyGiftButton.classList.toggle("daily-ready", ready);
-    elements.openDailyGiftButton.classList.toggle("daily-claimed", !ready);
+    const cooldown = formatCooldown(timeUntilDailyGift());
+    if (elements.openDailyGiftButton) {
+      const text = elements.openDailyGiftButton.querySelector("small");
+      if (text) text.textContent = ready ? "Open one free card today" : `Next gift in ${cooldown}`;
+      elements.openDailyGiftButton.disabled = !ready && !isModView();
+      elements.openDailyGiftButton.classList.toggle("daily-ready", ready);
+      elements.openDailyGiftButton.classList.toggle("daily-claimed", !ready);
+    }
+    if (elements.dailyGiftShopButton) {
+      elements.dailyGiftShopButton.disabled = !ready && !isModView();
+      elements.dailyGiftShopButton.textContent = ready ? "Open Daily Gift" : `Daily Gift in ${cooldown}`;
+    }
+    if (!dailyTimerStarted) {
+      dailyTimerStarted = true;
+      setInterval(renderDailyGiftButton, 30000);
+    }
   }
 
   function showDeck(message = "") {
@@ -233,8 +335,7 @@
       await saveOnline(collection.activeDeck);
       renderDeckSaveState("Saved to your account. This deck stays active until you save a new one.");
     } catch (error) {
-      deckDirty = true;
-      renderDeckSaveState(error?.message || "Could not save deck to account.");
+      renderDeckSaveState(error?.message || "Saved on this device. Account sync will retry when available.");
     }
   }
 
@@ -384,7 +485,7 @@
   function claimDailyGift() {
     reloadSavedCollection();
     if (!canOpenDailyGift()) {
-      showShop("Daily gift already opened today. Come back tomorrow.");
+      showShop(`Daily gift already opened. Next gift in ${formatCooldown(timeUntilDailyGift())}.`);
       elements.shopMessage.classList.add("error");
       return;
     }
@@ -395,6 +496,7 @@
       return;
     }
     collection.lastDailyGift = todayKey();
+    collection.lastDailyGiftAt = Date.now();
     const results = cardsWon.map(addCardResult);
     saveCollection();
     elements.shopModal.hidden = false;
@@ -634,6 +736,25 @@
     }
   }
 
+  async function loadAccountCollectionFromAccount() {
+    const loadOnline = window.ArponOnline?.loadAccountCollection;
+    if (!loadOnline || !window.ArponOnline?.getAccountProfile?.()) return false;
+    try {
+      const snapshot = await loadOnline();
+      if (!snapshot || typeof snapshot !== "object" || !Object.keys(snapshot).length) return false;
+      const applied = applyCollectionSnapshot(snapshot);
+      if (applied) scheduleAccountCollectionSave();
+      if (applied && !elements.deckModal.hidden) renderDeck();
+      renderCoinPills();
+      return applied;
+    } catch (error) {
+      if (!/collection|function .* does not exist|schema cache|not found/i.test(String(error?.message || error || ""))) {
+        console.warn("Could not load account collection", error);
+      }
+      return false;
+    }
+  }
+
   function onAccountChanged(profile) {
     ownerKey = ownerStorageKey(profile);
     collection = loadCollection(ownerKey);
@@ -671,8 +792,23 @@
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   }
 
+  function timeUntilDailyGift() {
+    if (isModView()) return 0;
+    const openedAt = Number(collection.lastDailyGiftAt || 0);
+    if (!openedAt) return 0;
+    return Math.max(0, openedAt + DAY_MS - Date.now());
+  }
+
+  function formatCooldown(ms) {
+    const totalSeconds = Math.ceil(Math.max(0, ms) / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    if (hours <= 0) return `${Math.max(1, minutes)}m`;
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  }
+
   function canOpenDailyGift() {
-    return isModView() || collection.lastDailyGift !== todayKey();
+    return isModView() || timeUntilDailyGift() <= 0;
   }
 
   elements.openDeckButton?.addEventListener("click", () => showDeck());
@@ -738,6 +874,7 @@
     markSeen,
     awardCoins,
     applyAccountGrants,
+    loadAccountCollectionFromAccount,
     loadAccountDeckFromAccount,
     cardCatalog,
     onAccountChanged,
