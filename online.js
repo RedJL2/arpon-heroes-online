@@ -58,10 +58,6 @@ const account = {
   profile: null,
   recordedResults: new Set(),
   pendingResults: new Set(),
-  collectionOwner: null,
-  collectionLoadedForToken: null,
-  socialSignature: "",
-  seenSocialSignature: "",
 };
 const leaderboard = { metric: "ranked_wins", page: 0, rows: [] };
 let presenceTimer = null;
@@ -525,7 +521,6 @@ function setAccountMessage(message, error = false) {
 
 function renderAccount() {
   const profile = account.profile;
-  const ownerKey = profile?.username || "guest";
   onlineElements.accountSummary.textContent = profile
     ? `${profile.username} · ${profile.ranked_wins} ranked wins · ${profile.solo_wins} robot wins`
     : "Playing as guest";
@@ -543,14 +538,7 @@ function renderAccount() {
     onlineElements.onlinePlayerName.value = profile.username;
     setAccountMessage("Your record is saved after ranked and robot battles.");
   }
-  if (account.collectionOwner !== ownerKey) {
-    account.collectionOwner = ownerKey;
-    account.collectionLoadedForToken = null;
-    account.socialSignature = "";
-    account.seenSocialSignature = localStorage.getItem(socialSeenKey()) || "";
-    window.ArponCollection?.onAccountChanged?.(profile);
-  }
-  updateFriendsAlert();
+  window.ArponCollection?.onAccountChanged?.(profile);
 }
 
 function isGrantSetupMissing(error) {
@@ -559,10 +547,6 @@ function isGrantSetupMissing(error) {
 
 function isDeckSetupMissing(error) {
   return /save_arpon_account_deck|get_arpon_account_deck|function .* does not exist|schema cache/i.test(String(error?.message || error || ""));
-}
-
-function isCollectionSetupMissing(error) {
-  return /save_arpon_account_collection|get_arpon_account_collection|function .* does not exist|schema cache|not found/i.test(String(error?.message || error || ""));
 }
 
 async function claimAccountGrants() {
@@ -599,34 +583,6 @@ async function saveAccountDeck(activeDeck) {
   }
 }
 
-async function loadAccountCollection() {
-  if (!account.token) return null;
-  try {
-    return await rpc("get_arpon_account_collection", { p_session_token: account.token });
-  } catch (error) {
-    if (!isCollectionSetupMissing(error)) throw error;
-    return null;
-  }
-}
-
-async function saveAccountCollection(collection) {
-  if (!account.token) throw new Error("Sign in before saving your collection to your account.");
-  try {
-    return await rpc("save_arpon_account_collection", { p_session_token: account.token, p_collection: collection });
-  } catch (error) {
-    if (isCollectionSetupMissing(error)) throw new Error("Saved on this device. Run the collection sync SQL once to save upgrades to your account.");
-    throw error;
-  }
-}
-
-async function loadAccountCollectionOnce(force = false) {
-  if (!account.token || !account.profile) return;
-  if (!force && account.collectionLoadedForToken === account.token) return;
-  account.collectionLoadedForToken = account.token;
-  const loadedCollection = await window.ArponCollection?.loadAccountCollectionFromAccount?.();
-  if (!loadedCollection) await window.ArponCollection?.loadAccountDeckFromAccount?.();
-}
-
 async function refreshAccount() {
   if (!account.token) {
     account.profile = null;
@@ -644,7 +600,7 @@ async function refreshAccount() {
   }
   renderAccount();
   claimAccountGrants();
-  loadAccountCollectionOnce();
+  window.ArponCollection?.loadAccountDeckFromAccount?.();
 }
 
 async function submitAccount(create) {
@@ -664,7 +620,7 @@ async function submitAccount(create) {
     renderAccount();
     touchPresence();
     claimAccountGrants();
-    loadAccountCollectionOnce(true);
+    window.ArponCollection?.loadAccountDeckFromAccount?.();
     if (session.active) rpc("link_arpon_player_account", { p_game_id: session.gameId, p_player_token: session.token, p_session_token: account.token }).catch(() => {});
     if (create) window.ArponGame?.promptTutorial?.();
   } catch (error) {
@@ -734,53 +690,23 @@ function setFriendsMessage(message, error = false) {
   onlineElements.friendsMessage.classList.toggle("error", error);
 }
 
-function socialSeenKey() {
-  return `arpon-social-seen:${account.profile?.username || "guest"}`;
-}
-
-function socialSignature(data) {
-  if (!data) return "";
-  const compact = {
-    requests: (data.requests || []).map((item) => item.username).sort(),
-    invites: (data.invites || []).map((item) => `${item.from}:${item.code}`).sort(),
-    messages: (data.messages || []).slice(0, 8).map((item) => `${item.from}:${item.to}:${item.sent_at}:${item.body}`),
-  };
-  return JSON.stringify(compact);
-}
-
-function updateFriendsAlert() {
-  const hasAlert = Boolean(account.profile && account.socialSignature && account.socialSignature !== account.seenSocialSignature);
-  onlineElements.friendsButton?.classList.toggle("has-social-alert", hasAlert);
-  onlineElements.friendsButton?.setAttribute("aria-label", hasAlert ? "Friends, new activity" : "Friends");
-}
-
-function renderSocialDashboard(data) {
-  onlineElements.friendsList.innerHTML = data.friends.length ? data.friends.map((friend) => `
-    <button class="social-person ${friend.online ? "online" : ""}" data-social-username="${escapeOnline(friend.username)}" type="button">
-      <i></i><strong>${escapeOnline(friend.username)}</strong><span>${friend.online ? "Online" : "Offline"}</span>
-    </button>`).join("") : "<p>No friends yet.</p>";
-  onlineElements.friendRequestsList.innerHTML = [
-    ...data.requests.map((request) => `<article><strong>${escapeOnline(request.username)}</strong><span>Friend request</span><div><button data-accept-friend="${escapeOnline(request.username)}" type="button">Accept</button><button data-decline-friend="${escapeOnline(request.username)}" type="button">Decline</button></div></article>`),
-    ...data.invites.map((invite) => `<article class="battle-invite"><strong>${escapeOnline(invite.from)}</strong><span>Friendly battle invitation</span><button data-join-invite="${escapeOnline(invite.code)}" type="button">Join Battle</button></article>`),
-  ].join("") || "<p>No pending requests.</p>";
-  onlineElements.friendMessagesList.innerHTML = data.messages.length ? data.messages.map((message) => `
-    <article><strong>${escapeOnline(message.from)} → ${escapeOnline(message.to)}</strong><span>${new Date(message.sent_at).toLocaleString()}</span><p>${escapeOnline(message.body)}</p></article>`).join("") : "<p>No messages yet.</p>";
-  bindSocialActions();
-}
-
-async function refreshFriends(options = {}) {
-  if (!account.token) return;
+async function refreshFriends() {
+  if (!account.token || onlineElements.friendsModal.hidden) return;
   try {
     const data = await rpc("get_arpon_social_dashboard", { p_session_token: account.token });
-    account.socialSignature = socialSignature(data);
-    if (options.markSeen) {
-      account.seenSocialSignature = account.socialSignature;
-      localStorage.setItem(socialSeenKey(), account.seenSocialSignature);
-    }
-    updateFriendsAlert();
-    if (!onlineElements.friendsModal.hidden || options.render) renderSocialDashboard(data);
+    onlineElements.friendsList.innerHTML = data.friends.length ? data.friends.map((friend) => `
+      <button class="social-person ${friend.online ? "online" : ""}" data-social-username="${escapeOnline(friend.username)}" type="button">
+        <i></i><strong>${escapeOnline(friend.username)}</strong><span>${friend.online ? "Online" : "Offline"}</span>
+      </button>`).join("") : "<p>No friends yet.</p>";
+    onlineElements.friendRequestsList.innerHTML = [
+      ...data.requests.map((request) => `<article><strong>${escapeOnline(request.username)}</strong><span>Friend request</span><div><button data-accept-friend="${escapeOnline(request.username)}" type="button">Accept</button><button data-decline-friend="${escapeOnline(request.username)}" type="button">Decline</button></div></article>`),
+      ...data.invites.map((invite) => `<article class="battle-invite"><strong>${escapeOnline(invite.from)}</strong><span>Friendly battle invitation</span><button data-join-invite="${escapeOnline(invite.code)}" type="button">Join Battle</button></article>`),
+    ].join("") || "<p>No pending requests.</p>";
+    onlineElements.friendMessagesList.innerHTML = data.messages.length ? data.messages.map((message) => `
+      <article><strong>${escapeOnline(message.from)} → ${escapeOnline(message.to)}</strong><span>${new Date(message.sent_at).toLocaleString()}</span><p>${escapeOnline(message.body)}</p></article>`).join("") : "<p>No messages yet.</p>";
+    bindSocialActions();
   } catch (error) {
-    if (!onlineElements.friendsModal.hidden || options.render) setFriendsMessage(error.message, true);
+    setFriendsMessage(error.message, true);
   }
 }
 
@@ -791,7 +717,7 @@ function bindSocialActions() {
   onlineElements.friendsModal.querySelectorAll("[data-accept-friend], [data-decline-friend]").forEach((button) => button.addEventListener("click", async () => {
     const username = button.dataset.acceptFriend || button.dataset.declineFriend;
     await rpc("respond_arpon_friend_request", { p_session_token: account.token, p_requester_username: username, p_accept: Boolean(button.dataset.acceptFriend) });
-    refreshFriends({ render: true, markSeen: true });
+    refreshFriends();
   }));
   onlineElements.friendsModal.querySelectorAll("[data-join-invite]").forEach((button) => button.addEventListener("click", () => joinPrivateRoomWithCode(button.dataset.joinInvite)));
 }
@@ -808,7 +734,7 @@ async function sendFriendMessage() {
     await rpc("send_arpon_message", { p_session_token: account.token, p_username: onlineElements.friendUsername.value, p_body: onlineElements.friendMessage.value });
     onlineElements.friendMessage.value = "";
     setFriendsMessage("Message sent.");
-    refreshFriends({ render: true, markSeen: true });
+    refreshFriends();
   } catch (error) { setFriendsMessage(error.message, true); }
 }
 
@@ -1057,7 +983,7 @@ onlineElements.leaderboardNextButton.addEventListener("click", () => {
 });
 onlineElements.friendsButton.addEventListener("click", () => {
   onlineElements.friendsModal.hidden = false;
-  refreshFriends({ render: true, markSeen: true });
+  refreshFriends();
 });
 onlineElements.closeFriendsButton.addEventListener("click", () => {
   onlineElements.friendsModal.hidden = true;
@@ -1078,8 +1004,6 @@ window.ArponOnline = {
   getAccountProfile: () => account.profile,
   loadAccountDeck,
   saveAccountDeck,
-  loadAccountCollection,
-  saveAccountCollection,
   isHost: () => Boolean(session.room?.game?.is_host),
   isOnline: () => session.active,
   onGameRendered: schedulePush,

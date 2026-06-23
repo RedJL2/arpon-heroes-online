@@ -151,7 +151,6 @@ const state = {
   receiptContent: "",
   receiptExpiresAt: 0,
   receiptId: null,
-  combatFx: null,
   turnEndNotice: null,
   victory: null,
   log: [],
@@ -178,7 +177,6 @@ const deviceState = {
   resolvedAbilityRollKey: null,
   dismissedTurnEndNoticeToken: null,
   turnEndNoticeTimer: null,
-  combatFxTimer: null,
   commandPanelCollapsed: false,
 };
 
@@ -1209,7 +1207,6 @@ function renderBoard() {
   if (state.phase === "walls") renderWallSlots();
   renderWalls();
   renderPawns(highlights);
-  renderCombatFx();
 }
 
 function renderWallSlots() {
@@ -1241,7 +1238,6 @@ function renderWalls() {
   state.walls.forEach((wall) => {
     const el = document.createElement("div");
     el.className = `wall ${wall.axis === "h" ? "horizontal" : "vertical"}`;
-    if (wall.createdAt && Date.now() - wall.createdAt < 800) el.classList.add("recent");
     el.style.setProperty("--team-color", wallColor(wall));
     el.style.setProperty("--x", wall.x);
     el.style.setProperty("--y", wall.y);
@@ -1253,26 +1249,8 @@ function wallColor(wall) {
   return teams[wall.owner]?.color || "#60656b";
 }
 
-function activeCombatFx() {
-  const fx = state.combatFx;
-  if (!fx) return null;
-  if (Date.now() >= fx.expiresAt) {
-    state.combatFx = null;
-    return null;
-  }
-  clearTimeout(deviceState.combatFxTimer);
-  deviceState.combatFxTimer = setTimeout(() => {
-    if (state.combatFx?.token === fx.token) {
-      state.combatFx = null;
-      render(false);
-    }
-  }, Math.max(80, fx.expiresAt - Date.now() + 20));
-  return fx;
-}
-
 function renderPawns(highlights) {
   const selected = getSelectedLoadout();
-  const fx = activeCombatFx();
   state.loadouts.forEach((loadout) => {
     if (!loadout.placed || loadout.ko) return;
     const hpPercent = loadout.maxHp ? Math.max(0, Math.min(100, (loadout.currentHp / loadout.maxHp) * 100)) : 0;
@@ -1289,13 +1267,6 @@ function renderPawns(highlights) {
     pawn.classList.toggle("targetable", selected && selected.team !== loadout.team && highlights.attack.has(posKey(loadout.x, loadout.y)));
     pawn.classList.toggle("inactive", loadout.team !== state.activeTeam);
     pawn.classList.toggle("damage-hit", deviceState.lastHpByLoadout[loadout.id] !== undefined && loadout.currentHp < deviceState.lastHpByLoadout[loadout.id]);
-    if (fx?.attackerId === loadout.id) {
-      const target = getLoadout(fx.targetId);
-      pawn.classList.add("attack-lunge");
-      pawn.style.setProperty("--lunge-x", `${Math.sign((target?.x ?? loadout.x) - loadout.x) * 18}px`);
-      pawn.style.setProperty("--lunge-y", `${Math.sign((target?.y ?? loadout.y) - loadout.y) * 18}px`);
-    }
-    if (fx?.targetId === loadout.id) pawn.classList.add("impact-hit");
     pawn.title = `${loadout.name}, ${displayName(loadout.team)}, Hero ${loadout.setNumber}`;
     pawn.innerHTML = `
       <span class="pawn-attack">${attackMark}<b>${loadout.weapon.effects.range}</b></span>
@@ -1308,25 +1279,6 @@ function renderPawns(highlights) {
     elements.board.appendChild(pawn);
     deviceState.lastHpByLoadout[loadout.id] = loadout.currentHp;
   });
-}
-
-function renderCombatFx() {
-  const fx = activeCombatFx();
-  if (!fx) return;
-  const target = getLoadout(fx.targetId);
-  const attacker = getLoadout(fx.attackerId);
-  if (target && fx.damage > 0) elements.board.appendChild(combatFloat(target.x, target.y, `-${fx.damage} HP`, "damage"));
-  if (target && fx.blocked > 0) elements.board.appendChild(combatFloat(target.x, target.y, `Blocked ${fx.blocked}`, "block"));
-  if (attacker && fx.reflected > 0) elements.board.appendChild(combatFloat(attacker.x, attacker.y, `Reflected ${fx.reflected}`, "reflect"));
-}
-
-function combatFloat(x, y, text, type) {
-  const el = document.createElement("div");
-  el.className = `combat-float ${type}`;
-  el.style.setProperty("--x", x);
-  el.style.setProperty("--y", y);
-  el.textContent = text;
-  return el;
 }
 
 function renderHeroList() {
@@ -1572,7 +1524,7 @@ function placeWallSegment(axis, x, y) {
   const team = state.wallOwnerTurn;
   if (!canLocalControlTeam(team)) return;
   if (!isWallSegmentLegal(axis, x, y, team)) return;
-  state.walls.push({ axis, x, y, owner: team, createdAt: Date.now() });
+  state.walls.push({ axis, x, y, owner: team });
   state.wallCounts[team] += 1;
   window.ArponAudio?.play("wall");
   logEvent(`${displayName(team)} placed wall ${state.wallCounts[team]} of ${wallTarget(team)}.`, teams[team].color);
@@ -1707,7 +1659,6 @@ function moveLoadoutTo(loadout, move) {
   if (state.phase === "retreat") {
     loadout.x = move.x;
     loadout.y = move.y;
-    window.ArponAudio?.play("move");
     logEvent(`${loadout.name} retreated ${move.steps} spaces.`, teams[loadout.team].color);
     state.retreatSteps = 0;
     finishCurrentRetreat();
@@ -1720,7 +1671,6 @@ function moveLoadoutTo(loadout, move) {
   if (bonus) state.moveBonusUsed.push(loadout.id);
   loadout.x = move.x;
   loadout.y = move.y;
-  window.ArponAudio?.play("move");
   const sharedStepsUsed = Math.max(0, move.steps - bonus);
   state.movementLeft = Math.max(0, state.movementLeft - sharedStepsUsed);
   if (!state.movedHeroIds.includes(loadout.id)) state.movedHeroIds.push(loadout.id);
@@ -1795,21 +1745,10 @@ function applyResolvedAttack(attackerId, targetId, attackRoll, defenseRoll) {
   if (!attacker || !target) return;
   const distance = lineDistance(attacker, target);
   const report = calculateDamage(attacker, target, attackRoll, defenseRoll, distance);
-  state.combatFx = {
-    token: crypto.randomUUID(),
-    attackerId: attacker.id,
-    targetId: target.id,
-    damage: report.damage,
-    blocked: report.reduction,
-    reflected: report.reflected,
-    expiresAt: Date.now() + 780,
-  };
   target.currentHp = Math.max(0, target.currentHp - report.damage);
   if (report.damage > 0) window.ArponAudio?.play("damage");
-  if (report.reduction > 0) window.ArponAudio?.play("block");
   if (target.currentHp <= 0) target.ko = true;
   if (report.reflected > 0) {
-    window.ArponAudio?.play("reflect");
     attacker.currentHp = Math.max(0, attacker.currentHp - report.reflected);
     if (attacker.currentHp <= 0) attacker.ko = true;
   }
