@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="128" viewBox="0 0 256 128" shape-rendering="crispEdges">
+  <!-- Play: sword and shield -->
+  <g transform="translate(0 0)">
+    <path fill="#202328" d="M12 12h28v4h4v28h-4v4H12v-4H8V16h4z"/>
+    <path fill="#184fa8" d="M16 16h20v4h4v20h-4v4H16v-4h-4V20h4z"/>
+    <path fill="#f5f1df" d="M36 8h8v8h-4v4h-4v4h-4v4h-8v-8h4v-4h4v-4h4z"/>
+    <path fill="#b71f24" d="M20 28h20v8H20zM24 36h8v12h-8z"/>
+    <path fill="#e2bd35" d="M28 16h8v4h-8z"/>
+  </g>
+  <!-- Deck: three cards -->
+  <g transform="translate(64 0)">
+    <path fill="#202328" d="M12 10h28v40H12zM8 14h4v40H8zM40 14h4v40h-4z"/>
+    <path fill="#184fa8" d="M16 14h20v32H16z"/>
+    <path fill="#f5f1df" d="M22 18h20v32H22z"/>
+    <path fill="#202328" d="M22 18h20v4H22zM22 46h20v4H22zM38 18h4v32h-4z"/>
+    <path fill="#b71f24" d="M28 28h8v12h-8zM24 32h16v4H24z"/>
+    <path fill="#e2bd35" d="M16 18h4v24h-4z"/>
+  </g>
+  <!-- Shop: treasure chest -->
+  <g transform="translate(128 0)">
+    <path fill="#202328" d="M8 18h48v36H8zM12 10h40v8H12z"/>
+    <path fill="#7a3b1d" d="M12 22h40v28H12z"/>
+    <path fill="#b71f24" d="M12 14h40v12H12z"/>
+    <path fill="#e2bd35" d="M8 26h48v6H8zM28 26h8v16h-8z"/>
+    <path fill="#f5f1df" d="M30 30h4v6h-4z"/>
+  </g>
+  <!-- Daily gift -->
+  <g transform="translate(192 0)">
+    <path fill="#202328" d="M10 24h44v32H10zM6 16h52v12H6z"/>
+    <path fill="#249b55" d="M14 28h36v24H14zM10 20h44v4H10z"/>
+    <path fill="#e2bd35" d="M28 16h8v40h-8zM18 8h12v4h4v8h-8v-4h-8zM34 8h12v8h-8v4h-8v-8h4z"/>
+    <path fill="#f5f1df" d="M30 30h4v4h-4z"/>
+  </g>
+  <!-- Local: two player shields -->
+  <g transform="translate(0 64)">
+    <path fill="#202328" d="M6 14h24v30h-4v6H14v-6H10V22H6zM34 14h24v30h-4v6H42v-6h-4V22h-4z"/>
+    <path fill="#249b55" d="M10 18h16v24h-4v4h-4v-4h-4V22h-4z"/>
+    <path fill="#184fa8" d="M38 18h16v24h-4v4h-4v-4h-4V22h-4z"/>
+    <path fill="#f5f1df" d="M14 24h8v8h-8zM42 24h8v8h-8z"/>
+  </g>
+  <!-- Solo: arena robot -->
+  <g transform="translate(64 64)">
+    <path fill="#202328" d="M14 16h36v36H14zM26 8h12v8H26zM8 26h6v16H8zM50 26h6v16h-6z"/>
+    <path fill="#b71f24" d="M18 20h28v28H18z"/>
+    <path fill="#f5f1df" d="M22 26h8v8h-8zM34 26h8v8h-8z"/>
+    <path fill="#e2bd35" d="M24 40h16v4H24zM30 10h4v6h-4z"/>
+    <path fill="#184fa8" d="M24 28h4v4h-4zM36 28h4v4h-4z"/>
+  </g>
+  <!-- Private: fortress lock -->
+  <g transform="translate(128 64)">
+    <path fill="#202328" d="M8 14h48v42H8zM14 8h10v10H14zM28 8h8v10h-8zM40 8h10v10H40z"/>
+    <path fill="#55554e" d="M12 18h40v34H12z"/>
+    <path fill="#184fa8" d="M20 26h24v22H20z"/>
+    <path fill="#202328" d="M28 22h8v8h4v12h-4v6h-8v-6h-4V30h4z"/>
+    <path fill="#e2bd35" d="M30 30h4v8h-4z"/>
+  </g>
+  <!-- Match: crossed blades -->
+  <g transform="translate(192 64)">
+    <path fill="#202328" d="M10 10h8v8h4v4h4v4h4v4h4v4h4v4h4v4h8v12h-8v-8h-4v-4h-4v-4h-4v-4h-4v-4h-4v-4h-4v-4h-8zM46 10h8v12h-8v4h-4v4h-4v4h-4v-8h4v-4h4v-4h4z"/>
+    <path fill="#f5f1df" d="M14 14h4v4h4v4h4v4h4v4h4v4h4v4h4v4h-4v-4h-4v-4h-4v-4h-4v-4h-4v-4h-4v-4h-4zM50 14h-4v4h-4v4h-4v4h-4v-4h4v-4h4v-4h4z"/>
+    <path fill="#b71f24" d="M10 46h12v8H10zM42 46h12v8H42z"/>
+    <path fill="#e2bd35" d="M18 42h8v8h-8zM38 42h8v8h-8z"/>
+  </g>
+</svg>
